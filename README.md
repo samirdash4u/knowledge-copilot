@@ -82,6 +82,20 @@ curl -s localhost:8000/ask -H "authorization: Bearer $TOKEN" -H 'content-type: a
 Try the same question as `employee` and `manager`, for example *"Up to what amount can a manager
 approve an expense claim?"*.
 
+### Role demo scripts
+
+Each script mints its own tokens with curl, then asks a set of questions that role should and
+should not be able to answer:
+
+```bash
+./scripts/demo/ask-as-employee.sh   # everyday questions answered; manager/admin topics refused
+./scripts/demo/ask-as-manager.sh    # adds salary bands, approval limits, discipline, on-call pay
+./scripts/demo/ask-as-admin.sh      # adds admin-only content; the other tenant is still refused
+```
+
+Set `BASE_URL` if the API isn't on `http://localhost:8000`. Each question is labelled with the
+expected outcome (`answer` or `refuse`).
+
 ### Without Docker
 
 ```bash
