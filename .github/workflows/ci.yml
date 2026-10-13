@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: uv pip install --system -e ".[dev]"
+      - name: Lint
+        run: ruff check src tests && ruff format --check src tests
+      - name: Tests (offline backends, includes ACL leak and cache-poisoning tests)
+        run: pytest -q
+      - name: Offline eval (fails on any leak)
+        env:
+          COPILOT_EMBEDDER: hash
+          COPILOT_RERANKER: none
+          COPILOT_VECTOR_STORE: memory
+          COPILOT_CACHE: memory
+          COPILOT_LLM: echo
+          COPILOT_INDEX_DIR: /tmp/index
+        run: |
+          copilot ingest
+          copilot eval --modes bm25,vector,hybrid --out reports/eval-offline.json
