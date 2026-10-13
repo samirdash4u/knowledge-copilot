@@ -28,13 +28,13 @@ services:
     ports: ["11434:11434"]
     volumes: [ollama:/root/.ollama]
     # Remove this block to run the LLM on CPU (much slower).
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    #deploy:
+    #  resources:
+    #    reservations:
+    #      devices:
+    #        - driver: nvidia
+    #          count: 1
+    #          capabilities: [gpu]
 
 volumes:
   index:
