@@ -7,7 +7,11 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -17,6 +21,7 @@ jobs:
       - name: Install
         run: uv pip install --system -e ".[dev]"
       - name: Lint
+        if: runner.os == 'Linux'
         run: ruff check src tests && ruff format --check src tests
       - name: Tests (offline backends, includes ACL leak and cache-poisoning tests)
         run: pytest -q
@@ -27,7 +32,8 @@ jobs:
           COPILOT_VECTOR_STORE: memory
           COPILOT_CACHE: memory
           COPILOT_LLM: echo
-          COPILOT_INDEX_DIR: /tmp/index
+          COPILOT_INDEX_DIR: ${{ runner.temp }}/index
+        shell: bash
         run: |
           copilot ingest
           copilot eval --modes bm25,vector,hybrid --out reports/eval-offline.json

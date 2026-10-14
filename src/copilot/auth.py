@@ -14,9 +14,16 @@ class AuthError(Exception):
     pass
 
 
-def issue_token(settings: Settings, user_id: str, role: Role | str, tenant: str) -> str:
+def issue_token(
+    settings: Settings,
+    user_id: str,
+    role: Role | str,
+    tenant: str,
+    extra: dict | None = None,
+) -> str:
     now = datetime.now(UTC)
     payload = {
+        **(extra or {}),
         "sub": user_id,
         "role": Role.parse(role).label,
         "tenant": tenant,
@@ -26,7 +33,8 @@ def issue_token(settings: Settings, user_id: str, role: Role | str, tenant: str)
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
-def verify_token(settings: Settings, token: str) -> Principal:
+def decode_token(settings: Settings, token: str) -> tuple[Principal, dict]:
+    """Verify the signature and expiry; return the principal and the raw claims."""
     try:
         claims = jwt.decode(
             token,
@@ -34,8 +42,13 @@ def verify_token(settings: Settings, token: str) -> Principal:
             algorithms=[settings.jwt_algorithm],
             options={"require": ["sub", "role", "tenant", "exp"]},
         )
-        return Principal(
+        principal = Principal(
             user_id=claims["sub"], role=Role.parse(claims["role"]), tenant=claims["tenant"]
         )
+        return principal, claims
     except (jwt.PyJWTError, ValueError) as exc:
         raise AuthError(str(exc)) from exc
+
+
+def verify_token(settings: Settings, token: str) -> Principal:
+    return decode_token(settings, token)[0]

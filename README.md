@@ -96,12 +96,66 @@ should not be able to answer:
 Set `BASE_URL` if the API isn't on `http://localhost:8000`. Each question is labelled with the
 expected outcome (`answer` or `refuse`).
 
-### Without Docker
+### Web UI
+
+Open **http://localhost:8000** after `make up` and `make ingest`. The page has sign-in, password
+change and a chat that shows each answer's sources, plus a workspace switch between company
+policy and engineering docs.
+
+Accounts are stored in SQLite (`data/users.db`, or `/index/users.db` in Docker). On first start
+the server creates three demo accounts, all with the password `ChangeMe123`, which each must change
+at first login:
+
+| Username | Role |
+|---|---|
+| `alice` | employee |
+| `bob` | manager |
+| `carol` | admin |
+
+Passwords are hashed with PBKDF2-SHA256. Changing a password signs out every other session for that
+account, and five failed logins lock the account for five minutes. Manage accounts from the command
+line:
 
 ```bash
-uv venv && uv pip install -e ".[ml,dev]"
-pytest -q          # offline, no models needed
-make eval-offline  # offline end-to-end eval
+copilot users list
+copilot users add dave --role manager --tenants policy,engineering   # prompts for a password
+copilot users reset-password alice                                    # must change at next login
+```
+
+### Without Docker (Linux, macOS or Windows)
+
+Everything is plain Python, so it runs natively on any of the three. Install
+[Ollama](https://ollama.com) for your OS, then:
+
+```bash
+ollama pull qwen2.5:7b-instruct-q4_K_M
+uv venv
+uv pip install -e ".[ml,dev]"
+```
+
+Activate the environment, using `source .venv/bin/activate` on Linux and macOS or
+`.venv\Scripts\activate` in Windows PowerShell. Then run Qdrant and Redis in memory instead of as
+services, and start the server:
+
+```bash
+# Linux / macOS
+export COPILOT_VECTOR_STORE=memory COPILOT_CACHE=memory
+copilot ingest
+copilot serve            # then open http://localhost:8000
+```
+
+```powershell
+# Windows PowerShell
+$env:COPILOT_VECTOR_STORE = "memory"; $env:COPILOT_CACHE = "memory"
+copilot ingest
+copilot serve            # then open http://localhost:8000
+```
+
+Tests and the offline eval need no models at all:
+
+```bash
+pytest -q
+make eval-offline        # on Windows, run the two commands from the Makefile by hand
 ```
 
 ## Evaluation
@@ -138,6 +192,8 @@ src/copilot/
   generation/          prompt, Ollama client, citation checker
   cache.py             role-scoped semantic cache (memory / Redis)
   service.py           the question-answering pipeline
+  users.py             SQLite user accounts, password hashing, login throttling
+  web/index.html       the web UI (no build step)
   api.py, cli.py       HTTP API and command line
   eval/runner.py       metrics, canary leak detection, cache-poisoning test
 data/corpus/{policy,engineering}/   documents (first folder level = tenant)
@@ -147,7 +203,7 @@ eval/questions.jsonl                golden question set
 ## Roadmap
 
 - [ ] Grow the corpus to 50–100 documents with public regulatory and handbook sources
-- [ ] Playground UI with a role switcher and side-by-side answers
+- [x] Web UI with login, password change and chat
 - [ ] OpenTelemetry tracing and Prometheus metrics
 - [ ] RAGAS faithfulness scoring with a local judge model
 - [ ] Ablation results table and latency benchmarks in this README

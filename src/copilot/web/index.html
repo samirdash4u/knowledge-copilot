@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Knowledge Copilot</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #5d6677; --border: #dfe3ea;
+    --accent: #2f5bd3; --accent-text: #ffffff; --user-bubble: #2f5bd3; --user-text: #ffffff;
+    --bot-bubble: #ffffff; --danger: #b42318; --warn-bg: #fff4e5; --warn-text: #8a4b00;
+    --ok-bg: #e8f5ee; --ok-text: #11663a; --chip: #eef2fb; --chip-text: #2f4a8a;
+    --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --panel: #1b2029; --text: #e6e9ef; --muted: #9aa3b2; --border: #2c3341;
+      --accent: #6d8ff0; --accent-text: #0d1220; --user-bubble: #3a5fd0; --user-text: #ffffff;
+      --bot-bubble: #1f2531; --danger: #f97066; --warn-bg: #3a2a12; --warn-text: #f5c27a;
+      --ok-bg: #11301f; --ok-text: #7fd6a3; --chip: #24304a; --chip-text: #b8c8f5;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  .hidden { display: none !important; }
+
+  /* auth screens */
+  .center { min-height: 100%; display: grid; place-items: center; padding: 24px 16px; }
+  .card {
+    width: 100%; max-width: 380px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 28px; box-shadow: var(--shadow);
+  }
+  .card h1 { font-size: 20px; margin: 0 0 4px; }
+  .card p.sub { margin: 0 0 20px; color: var(--muted); font-size: 14px; }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 14px 0 6px; }
+  input, select, textarea {
+    width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg);
+  }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 9px 14px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--panel); cursor: pointer;
+  }
+  .btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .btn.block { width: 100%; margin-top: 20px; }
+  .btn:disabled { opacity: .6; cursor: default; }
+  .error { color: var(--danger); font-size: 14px; margin-top: 12px; min-height: 1em; }
+  .notice {
+    background: var(--warn-bg); color: var(--warn-text); border-radius: 8px;
+    padding: 10px 12px; font-size: 14px; margin-bottom: 8px;
+  }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .link { background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0; }
+
+  /* app */
+  .app { height: 100%; display: flex; flex-direction: column; }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  header .brand { font-weight: 700; margin-right: auto; }
+  .badge {
+    display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px;
+    border-radius: 999px; background: var(--chip); color: var(--chip-text);
+  }
+  header select { width: auto; padding: 5px 8px; }
+  .who { font-size: 14px; color: var(--muted); }
+  main { flex: 1; overflow-y: auto; padding: 20px 16px; }
+  .thread { max-width: 820px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+  .msg { max-width: 88%; padding: 10px 14px; border-radius: 12px; white-space: pre-wrap; }
+  .msg.user { align-self: flex-end; background: var(--user-bubble); color: var(--user-text); }
+  .msg.bot {
+    align-self: flex-start; background: var(--bot-bubble); border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+  }
+  .msg.bot.error { color: var(--danger); }
+  .cite {
+    display: inline-block; font-size: 11px; font-weight: 700; padding: 0 5px; margin: 0 1px;
+    border-radius: 4px; background: var(--chip); color: var(--chip-text); cursor: pointer;
+    vertical-align: 1px;
+  }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; font-size: 12px; }
+  .meta .tag { padding: 1px 7px; border-radius: 999px; background: var(--chip); color: var(--chip-text); }
+  .meta .tag.warn { background: var(--warn-bg); color: var(--warn-text); }
+  .meta .tag.ok { background: var(--ok-bg); color: var(--ok-text); }
+  details.sources { margin-top: 8px; font-size: 13px; white-space: normal; }
+  details.sources summary { cursor: pointer; color: var(--muted); }
+  .source { border-top: 1px solid var(--border); padding: 8px 0 2px; }
+  .source .title { font-weight: 600; }
+  .source .snippet { color: var(--muted); margin-top: 2px; }
+  .source.flash { background: var(--chip); }
+  .empty { text-align: center; color: var(--muted); margin-top: 6vh; }
+  .suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 14px; }
+  .suggestions button {
+    border: 1px solid var(--border); background: var(--panel); border-radius: 999px;
+    padding: 6px 12px; cursor: pointer; font-size: 14px;
+  }
+  footer { padding: 12px 16px 16px; background: var(--bg); }
+  form.ask { max-width: 820px; margin: 0 auto; display: flex; gap: 8px; align-items: flex-end; }
+  form.ask textarea { resize: none; min-height: 44px; max-height: 160px; }
+  .typing { color: var(--muted); font-style: italic; }
+  .toast {
+    position: fixed; left: 50%; bottom: 88px; transform: translateX(-50%);
+    background: var(--ok-bg); color: var(--ok-text); border-radius: 8px; padding: 8px 14px;
+    font-size: 14px; box-shadow: var(--shadow); max-width: calc(100% - 32px);
+  }
+  @media (max-width: 600px) {
+    header { flex-wrap: wrap; gap: 8px; }
+    header .btn { padding: 6px 10px; font-size: 14px; }
+    .who { display: none; }
+    .msg { max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Sign in -->
+<section id="login-view" class="center hidden">
+  <form class="card" id="login-form" autocomplete="on">
+    <h1>Knowledge Copilot</h1>
+    <p class="sub">Sign in to ask questions about company policy and engineering docs.</p>
+    <label for="login-username">Username</label>
+    <input id="login-username" name="username" autocomplete="username" required>
+    <label for="login-password">Password</label>
+    <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+    <label for="login-tenant">Workspace</label>
+    <select id="login-tenant">
+      <option value="policy">Company policy</option>
+      <option value="engineering">Engineering docs</option>
+    </select>
+    <button class="btn primary block" type="submit">Sign in</button>
+    <div class="error" id="login-error" role="alert"></div>
+  </form>
+</section>
+
+<!-- Change password -->
+<section id="password-view" class="center hidden">
+  <form class="card" id="password-form">
+    <h1>Change password</h1>
+    <p class="sub" id="password-sub">Choose a new password for your account.</p>
+    <div class="notice hidden" id="password-forced">You must set a new password before continuing.</div>
+    <label for="pw-current">Current password</label>
+    <input id="pw-current" type="password" autocomplete="current-password" required>
+    <label for="pw-new">New password</label>
+    <input id="pw-new" type="password" autocomplete="new-password" required>
+    <div class="hint">At least 10 characters, with letters and digits, not containing your username.</div>
+    <label for="pw-confirm">Confirm new password</label>
+    <input id="pw-confirm" type="password" autocomplete="new-password" required>
+    <button class="btn primary block" type="submit">Update password</button>
+    <div class="error" id="password-error" role="alert"></div>
+    <p style="margin:14px 0 0;text-align:center" id="password-cancel-row">
+      <button type="button" class="link" id="password-cancel">Back to chat</button>
+    </p>
+  </form>
+</section>
+
+<!-- Chat -->
+<section id="chat-view" class="app hidden">
+  <header>
+    <span class="brand">Knowledge Copilot</span>
+    <span class="who" id="who"></span>
+    <span class="badge" id="role-badge"></span>
+    <select id="tenant-select" aria-label="Workspace"></select>
+    <button class="btn" id="open-password">Change password</button>
+    <button class="btn" id="logout">Sign out</button>
+  </header>
+  <main id="scroller">
+    <div class="thread" id="thread">
+      <div class="empty" id="empty">
+        <div>Ask a question. Answers only use documents your role can see, and every claim cites its source.</div>
+        <div class="suggestions" id="suggestions"></div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <form class="ask" id="ask-form">
+      <textarea id="question" rows="1" placeholder="Ask about leave, expenses, deployments…" maxlength="2000" required></textarea>
+      <button class="btn primary" type="submit" id="send">Send</button>
+    </form>
+  </footer>
+</section>
+
+<div class="toast hidden" id="toast" role="status"></div>
+
+<script>
+(() => {
+  const TOKEN_KEY = "copilot.token";
+  const TENANT_LABELS = { policy: "Company policy", engineering: "Engineering docs" };
+  const SUGGESTIONS = {
+    policy: {
+      employee: ["How many days of paid annual leave do I get?", "How many days a week can I work from home?", "What is the meal allowance for international travel?", "What is the salary range for level L4?"],
+      manager: ["What is the salary range for level L4?", "Up to what amount can a manager approve an expense claim?", "How long does a performance improvement plan last?", "What is the cap on the executive bonus pool?"],
+      admin: ["What is the cap on the executive bonus pool?", "When can break-glass accounts be used?", "How soon must a data breach be reported to the regulator?", "How often are database root credentials rotated?"],
+    },
+    engineering: {
+      employee: ["How long does a production canary run?", "How many approvals does a pull request need?", "What happens when the API rate limit is exceeded?", "How much is the weekly on-call allowance?"],
+      manager: ["How much is the weekly on-call allowance?", "Who approves an emergency fix during a deploy freeze?", "How do I fail over the payments Postgres cluster?"],
+      admin: ["How do I fail over the payments Postgres cluster?", "How often are database root credentials rotated?", "How do I roll back a service?"],
+    },
+  };
+
+  const $ = (id) => document.getElementById(id);
+  let me = null;
+
+  // ---------- storage (sessionStorage can throw in some private modes) ----------
+  const store = {
+    get() { try { return sessionStorage.getItem(TOKEN_KEY); } catch { return null; } },
+    set(v) { try { sessionStorage.setItem(TOKEN_KEY, v); } catch {} },
+    clear() { try { sessionStorage.removeItem(TOKEN_KEY); } catch {} },
+  };
+
+  async function api(path, { method = "GET", body, auth = true } = {}) {
+    const headers = { "Content-Type": "application/json" };
+    const token = store.get();
+    if (auth && token) headers.Authorization = "Bearer " + token;
+    const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    let data = null;
+    try { data = await res.json(); } catch {}
+    if (!res.ok) {
+      const detail = data && data.detail;
+      const msg = Array.isArray(detail) ? detail.map((d) => d.msg).join("; ") : detail || res.statusText;
+      const err = new Error(msg);
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
+  function show(view) {
+    for (const id of ["login-view", "password-view", "chat-view"]) $(id).classList.toggle("hidden", id !== view);
+  }
+
+  function startSession(session) {
+    store.set(session.access_token);
+    me = session.user;
+    route();
+  }
+
+  function route() {
+    if (!me) return show("login-view");
+    if (me.must_change_password) return openPassword(true);
+    renderHeader();
+    show("chat-view");
+    $("question").focus();
+  }
+
+  // ---------- login ----------
+  $("login-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    $("login-error").textContent = "";
+    const btn = e.submitter; btn.disabled = true;
+    try {
+      startSession(await api("/auth/login", {
+        method: "POST", auth: false,
+        body: { username: $("login-username").value, password: $("login-password").value, tenant: $("login-tenant").value },
+      }));
+      $("login-password").value = "";
+    } catch (err) {
+      $("login-error").textContent = err.message;
+    } finally { btn.disabled = false; }
+  });
+
+  // ---------- password change ----------
+  function openPassword(forced) {
+    $("password-form").reset();
+    $("password-error").textContent = "";
+    $("password-forced").classList.toggle("hidden", !forced);
+    $("password-cancel-row").classList.toggle("hidden", forced);
+    show("password-view");
+    $("pw-current").focus();
+  }
+  $("open-password").addEventListener("click", () => openPassword(false));
+  $("password-cancel").addEventListener("click", () => route());
+  $("password-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    $("password-error").textContent = "";
+    if ($("pw-new").value !== $("pw-confirm").value) {
+      $("password-error").textContent = "New passwords do not match.";
+      return;
+    }
+    const btn = e.submitter; btn.disabled = true;
+    try {
+      const session = await api("/auth/change-password", {
+        method: "POST", body: { current_password: $("pw-current").value, new_password: $("pw-new").value },
+      });
+      $("password-form").reset();
+      startSession(session);
+      toast("Your password was changed.");
+    } catch (err) {
+      if (err.status === 401) return signOut("Your session expired. Please sign in again.");
+      $("password-error").textContent = err.message;
+    } finally { btn.disabled = false; }
+  });
+
+  let toastTimer;
+  function toast(text) {
+    const t = $("toast");
+    t.textContent = text;
+    t.classList.remove("hidden");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.add("hidden"), 3000);
+  }
+
+  // ---------- header ----------
+  function renderHeader() {
+    $("who").textContent = me.username;
+    $("role-badge").textContent = me.role;
+    const sel = $("tenant-select");
+    sel.innerHTML = "";
+    for (const t of me.tenants) {
+      const opt = document.createElement("option");
+      opt.value = t; opt.textContent = TENANT_LABELS[t] || t; opt.selected = t === me.tenant;
+      sel.appendChild(opt);
+    }
+    sel.disabled = me.tenants.length < 2;
+    renderSuggestions();
+  }
+  $("tenant-select").addEventListener("change", async (e) => {
+    try {
+      const session = await api("/auth/switch-tenant", { method: "POST", body: { tenant: e.target.value } });
+      store.set(session.access_token);
+      me = session.user;
+      clearThread();
+      renderHeader();
+    } catch (err) {
+      if (err.status === 401) return signOut("Your session expired. Please sign in again.");
+      e.target.value = me.tenant;
+    }
+  });
+  function signOut(message) {
+    store.clear();
+    me = null;
+    clearThread();
+    $("login-error").textContent = message || "";
+    show("login-view");
+    $("login-username").focus();
+  }
+  $("logout").addEventListener("click", () => signOut());
+
+  // ---------- chat ----------
+  function renderSuggestions() {
+    const box = $("suggestions");
+    box.innerHTML = "";
+    const list = (SUGGESTIONS[me.tenant] || {})[me.role] || [];
+    for (const q of list) {
+      const b = document.createElement("button");
+      b.type = "button"; b.textContent = q;
+      b.addEventListener("click", () => ask(q));
+      box.appendChild(b);
+    }
+  }
+  function clearThread() {
+    const thread = $("thread");
+    for (const el of [...thread.children]) if (el.id !== "empty") el.remove();
+    $("empty").classList.remove("hidden");
+  }
+  function scrollDown() { const s = $("scroller"); s.scrollTop = s.scrollHeight; }
+
+  function addUser(text) {
+    $("empty").classList.add("hidden");
+    const div = document.createElement("div");
+    div.className = "msg user"; div.textContent = text;
+    $("thread").appendChild(div);
+    scrollDown();
+  }
+
+  // Render answer text with [n] markers turned into clickable chips. Uses text nodes only.
+  function renderAnswer(container, text, onCite) {
+    const re = /\[(\d+)\]/g;
+    let last = 0, m;
+    while ((m = re.exec(text))) {
+      container.appendChild(document.createTextNode(text.slice(last, m.index)));
+      const chip = document.createElement("span");
+      chip.className = "cite"; chip.textContent = m[1]; chip.title = "Show source " + m[1];
+      const n = Number(m[1]);
+      chip.addEventListener("click", () => onCite(n));
+      container.appendChild(chip);
+      last = re.lastIndex;
+    }
+    container.appendChild(document.createTextNode(text.slice(last)));
+  }
+
+  function addBot(ans) {
+    $("empty").classList.add("hidden");
+    const div = document.createElement("div");
+    div.className = "msg bot" + (ans.error ? " error" : "");
+    const body = document.createElement("div");
+    const sources = document.createElement("details");
+    sources.className = "sources";
+    const byMarker = {};
+    renderAnswer(body, ans.text, (n) => {
+      const el = byMarker[n];
+      if (!el) return;
+      sources.open = true;
+      el.classList.add("flash");
+      el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      setTimeout(() => el.classList.remove("flash"), 1200);
+    });
+    div.appendChild(body);
+
+    if (ans.citations && ans.citations.length) {
+      const summary = document.createElement("summary");
+      summary.textContent = `Sources (${ans.citations.length})`;
+      sources.appendChild(summary);
+      for (const c of ans.citations) {
+        const s = document.createElement("div");
+        s.className = "source";
+        const title = document.createElement("div");
+        title.className = "title";
+        title.textContent = `[${c.marker}] ${c.title} — ${c.section.split(" > ").slice(-1)[0]}`;
+        const snip = document.createElement("div");
+        snip.className = "snippet";
+        snip.textContent = c.snippet.length >= 300 ? c.snippet + "…" : c.snippet;
+        s.append(title, snip);
+        sources.appendChild(s);
+        byMarker[c.marker] = s;
+      }
+      div.appendChild(sources);
+    }
+
+    if (!ans.error) {
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      const tag = (text, cls) => {
+        const t = document.createElement("span");
+        t.className = "tag" + (cls ? " " + cls : ""); t.textContent = text; meta.appendChild(t);
+      };
+      if (ans.refused) tag("No answer in your documents", "warn");
+      if (ans.cached) tag("From cache", "ok");
+      if (ans.uncited_sentences && ans.uncited_sentences.length) tag(`${ans.uncited_sentences.length} uncited sentence(s)`, "warn");
+      if (ans.timings_ms && ans.timings_ms.total != null) tag(`${Math.round(ans.timings_ms.total)} ms`);
+      div.appendChild(meta);
+    }
+    $("thread").appendChild(div);
+    scrollDown();
+    return div;
+  }
+
+  let busy = false;
+  async function ask(question) {
+    question = question.trim();
+    if (!question || busy) return;
+    busy = true; $("send").disabled = true;
+    addUser(question);
+    const typing = document.createElement("div");
+    typing.className = "msg bot typing"; typing.textContent = "Searching your documents…";
+    $("thread").appendChild(typing); scrollDown();
+    try {
+      const ans = await api("/ask", { method: "POST", body: { question } });
+      typing.remove();
+      addBot(ans);
+    } catch (err) {
+      typing.remove();
+      if (err.status === 401) return signOut("Your session expired. Please sign in again.");
+      if (err.status === 403 && /password/i.test(err.message)) return openPassword(true);
+      addBot({ text: "Something went wrong: " + err.message, citations: [], error: true });
+    } finally {
+      busy = false; $("send").disabled = false; $("question").focus();
+    }
+  }
+
+  const q = $("question");
+  q.addEventListener("input", () => { q.style.height = "auto"; q.style.height = Math.min(q.scrollHeight, 160) + "px"; });
+  q.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("ask-form").requestSubmit(); }
+  });
+  $("ask-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = q.value;
+    q.value = ""; q.style.height = "auto";
+    ask(text);
+  });
+
+  // ---------- boot ----------
+  (async () => {
+    if (!store.get()) return show("login-view");
+    try { me = await api("/me"); } catch { store.clear(); me = null; }
+    route();
+  })();
+})();
+</script>
+</body>
+</html>

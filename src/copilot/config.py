@@ -24,6 +24,16 @@ class Settings(BaseSettings):
     # this outside local development.
     dev_token_endpoint: bool = False
 
+    # Users (web UI login)
+    users_db: Path = Path("data/users.db")
+    password_hash_iterations: int = 600_000
+    # On first start with an empty user database, create alice (employee), bob (manager) and
+    # carol (admin) with this password. Each must change it at first login.
+    seed_demo_users: bool = True
+    demo_password: str = "ChangeMe123"
+    login_max_failures: int = 5
+    login_lockout_s: int = 300
+
     # Chunking
     chunk_size: int = 800  # characters
     chunk_overlap: int = 120
