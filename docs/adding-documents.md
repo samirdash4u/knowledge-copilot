@@ -141,29 +141,44 @@ alice (employee), bob (manager) and carol (admin).
 ## Adding a new tenant
 
 A tenant is a separate workspace with its own documents, for example `legal` next to `policy`
-and `engineering`. Users only see the tenants listed on their account.
+and `engineering`. Give access by role, by user, or both:
 
 ```bash
-python scripts/manage.py add-tenant legal --label "Legal" --grant alice,bob
+python scripts/manage.py add-tenant legal --label "Legal" --grant admin,manager
 ```
 
-This creates `data/corpus/legal/` with a `tenant.yaml` holding the display name, which the web UI
-shows in the workspace picker (on the sign-in page and in the header). `--grant` gives the listed
-users access; use `--grant-all` for every existing user, or leave both out and grant later. The
-new workspace shows up in the web UI right away. Then add documents to it and re-index:
+This creates `data/corpus/legal/` with a `tenant.yaml`:
+
+```yaml
+label: "Legal"                  # shown in the web UI's workspace picker
+roles: ["admin", "manager"]     # every user with one of these roles can use the tenant
+```
+
+Access by role is a rule, not a one-time copy: a manager added next month gets Legal too. In
+`--grant`, the role names `employee`, `manager` and `admin` mean roles; anything else is a
+username, so `--grant manager,alice` opens it to all managers plus alice. `--grant-all` gives
+every existing user access. The new workspace shows up in the web UI right away. Then add
+documents to it and re-index:
 
 ```bash
 python scripts/manage.py add-doc "Contracts.docx" --tenant legal --min-role employee --ingest
 ```
 
+Roles and `min_role` work together: `--grant admin,manager` decides who can open the Legal
+workspace, and each document's `min_role` still decides what they see inside it.
+
 Managing access later:
 
 ```bash
 python scripts/manage.py users list                          # who has which tenants
-python scripts/manage.py users grant dana legal              # add a tenant to an account
+python scripts/manage.py users grant dana legal              # add a tenant to one account
 python scripts/manage.py users revoke dana legal             # remove it (takes effect at once)
 python scripts/manage.py users add erin --role employee --tenants legal
 ```
+
+To change which roles can use a tenant, edit `roles` in its `tenant.yaml`; the change applies on
+the next request, and removing a role signs those users out of that workspace. Revoking a tenant
+from one user doesn't override their role: if the tenant is open to managers, a manager keeps it.
 
 For a native install, use `copilot tenants add ...`, `copilot tenants list` and
 `copilot users grant ...`. Tenant names are lowercase letters, digits, `-` and `_`. To remove a

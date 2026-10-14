@@ -89,7 +89,7 @@ def test_cli_add_tenant_with_grant(monkeypatch, capsys, corpus, users):
     _cli(monkeypatch, users, "tenants", "add", "legal", "--label", "Legal",
          "--grant", "alice,nobody", "--corpus-dir", str(corpus))  # fmt: skip
     out = capsys.readouterr().out
-    assert "gave alice access" in out and "no such user: nobody" in out
+    assert "gave alice access" in out and "no such user or role: nobody" in out
     assert users.get("alice").tenants == ["policy", "legal"]
     assert users.get("bob").tenants == ["policy"]
 
@@ -134,3 +134,53 @@ def test_tenants_endpoint_and_login(settings, service, corpus, users):
 def test_exist_ok_returns_existing(corpus):
     create_tenant(corpus, "legal", "Legal")
     assert create_tenant(corpus, "legal", "Other", exist_ok=True).label == "Legal"
+
+
+def test_grant_by_role_covers_users_added_later(
+    monkeypatch, capsys, settings, service, corpus, users
+):
+    _cli(monkeypatch, users, "tenants", "add", "legal", "--label", "Legal",
+         "--grant", "admin,manager", "--corpus-dir", str(corpus))  # fmt: skip
+    assert "open to every admin and manager" in capsys.readouterr().out
+    (legal,) = [t for t in list_tenants(corpus) if t.name == "legal"]
+    assert legal.roles == ["admin", "manager"]
+    # Roles are kept in tenant.yaml, not copied onto accounts.
+    assert users.get("bob").tenants == ["policy"]
+    users.create("carl", PASSWORD, "manager", ["policy"], must_change=False)
+
+    client = TestClient(
+        create_app(settings.model_copy(update={"corpus_dir": corpus}), service, users)
+    )
+
+    def login(name):
+        return client.post(
+            "/auth/login", json={"username": name, "password": PASSWORD, "tenant": "legal"}
+        )
+
+    for manager in ("bob", "carl"):
+        r = login(manager)
+        assert r.status_code == 200
+        assert r.json()["user"]["tenants"] == ["policy", "legal"]
+    assert login("alice").status_code == 403  # employee
+
+    # Taking the role off the tenant ends existing sessions in it.
+    token = login("carl").json()["access_token"]
+    (corpus / "legal" / "tenant.yaml").write_text("label: Legal\nroles: [admin]\n")
+    r = client.get("/me", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 401
+
+
+def test_grant_mixes_roles_and_users(monkeypatch, corpus, users):
+    _cli(monkeypatch, users, "tenants", "add", "legal", "--grant", "admin,alice",
+         "--corpus-dir", str(corpus))  # fmt: skip
+    (legal,) = [t for t in list_tenants(corpus) if t.name == "legal"]
+    assert legal.roles == ["admin"]
+    assert users.get("alice").tenants == ["policy", "legal"]
+
+
+def test_exist_ok_adds_roles(corpus):
+    create_tenant(corpus, "legal", "Legal", ["admin"])
+    t = create_tenant(corpus, "legal", roles=["manager", "admin"], exist_ok=True)
+    assert t.roles == ["admin", "manager"]
+    with pytest.raises(ValueError, match="unknown role"):
+        create_tenant(corpus, "hr", roles=["boss"])

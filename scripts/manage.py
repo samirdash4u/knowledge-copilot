@@ -243,19 +243,27 @@ def add_tenant(args: argparse.Namespace) -> None:
     folder = ROOT / "data" / "corpus" / args.name
     if folder.exists():
         fail(f"tenant {args.name!r} already exists ({folder})")
+    items = [i.strip().lower() for i in (args.grant or "").split(",") if i.strip()]
+    roles = list(dict.fromkeys(i for i in items if i in ROLES))
+    names = [i for i in items if i not in ROLES]
     label = (args.label or "").strip() or args.name.replace("-", " ").replace("_", " ").title()
     folder.mkdir(parents=True)
-    # A JSON string is valid YAML, so no YAML library is needed here.
-    (folder / "tenant.yaml").write_text(f"label: {json.dumps(label)}\n", encoding="utf-8")
+    # JSON strings and lists are valid YAML, so no YAML library is needed here.
+    meta = f"label: {json.dumps(label)}\n"
+    if roles:
+        meta += f"roles: {json.dumps(roles)}\n"
+    (folder / "tenant.yaml").write_text(meta, encoding="utf-8")
     print(f"created tenant {args.name} ({label}) in {folder}")
-    if args.grant or args.grant_all:
+    if roles:
+        print(f"  open to every {' and '.join(roles)}, including users added later")
+    if names or args.grant_all:
         # User accounts live in the API's data volume, so the grant runs in the container.
         docker_check()
         cmd = compose_cmd() + ["run", "--rm", "--build", "--no-deps", "api"]
         cmd += ["copilot", "tenants", "add", args.name, "--exist-ok"]
-        cmd += ["--grant-all"] if args.grant_all else ["--grant", args.grant]
+        cmd += ["--grant-all"] if args.grant_all else ["--grant", ",".join(names)]
         run(cmd)
-    else:
+    elif not roles:
         print(f"Give users access with: python scripts/manage.py users grant <user> {args.name}")
     print(f"Next: python scripts/manage.py add-doc <file> --tenant {args.name}, then ingest")
 
@@ -451,7 +459,11 @@ def main() -> None:
     p.add_argument("name", help="folder name, e.g. legal")
     p.add_argument("--label", help="name shown in the web UI, e.g. 'Legal'")
     g = p.add_mutually_exclusive_group()
-    g.add_argument("--grant", help="comma-separated users to give access, e.g. alice,bob")
+    g.add_argument(
+        "--grant",
+        help="comma-separated roles and/or users, e.g. admin,manager or alice,bob."
+        " A role covers users added later too",
+    )
     g.add_argument("--grant-all", action="store_true", help="give every existing user access")
     p.set_defaults(func=add_tenant)
     p = sub.add_parser(
