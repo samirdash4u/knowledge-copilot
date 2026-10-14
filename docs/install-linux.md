@@ -116,7 +116,7 @@ you're most likely to change:
 | `COPILOT_HOST` | Address the web UI listens on. `0.0.0.0` means all network interfaces (reachable from other machines once the firewall allows it). `127.0.0.1` means this machine only. You can also give one specific IP of this machine, for example `192.168.1.20`. |
 | `COPILOT_PORT` | Port for the web UI, `8000` by default. |
 | `COPILOT_GPU` | `true` to run the LLM on the NVIDIA GPU (path A). |
-| `COPILOT_DEMO_PASSWORD` | Initial password of the demo users alice, bob and carol. |
+| `COPILOT_DEMO_PASSWORD` | Initial password of the demo users alice, bob and carol. After a change, run `up` again; demo users who already chose their own password keep it. |
 | `COPILOT_OLLAMA_MODEL` | The LLM. The default `qwen2.5:7b-instruct-q4_K_M` fits an 8 GB GPU. |
 
 To find this machine's IP address, run `hostname -I` or `ip -4 addr show`.
@@ -263,6 +263,7 @@ To uninstall completely, also:
 
 | Problem | Fix |
 |---|---|
+| *invalid username or password* for a demo user | The user already chose a password, or `up` wasn't run again after `COPILOT_DEMO_PASSWORD` changed. Reset it with `copilot users reset-password alice` (in Docker: `docker compose exec api copilot users reset-password alice`). Five wrong attempts lock the account for five minutes. |
 | `permission denied ... /var/run/docker.sock` | Your user isn't in the `docker` group yet: `sudo usermod -aG docker $USER`, then log out and in. |
 | `docker: 'compose' is not a docker command` | Install `docker-compose-plugin` from Docker's repository (2.2). |
 | *port is already allocated* / *address already in use* | Find the user with `sudo ss -ltnp \| grep :8000`, or set another `COPILOT_PORT`. |

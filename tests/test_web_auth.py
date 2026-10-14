@@ -59,6 +59,18 @@ def test_demo_users_seeded_once(users):
     }
 
 
+def test_demo_password_change_reaches_unused_demo_accounts(users):
+    users.seed_demo_users(DEMO)
+    users.change_password("bob", DEMO, "Summer2026Pass")
+    assert users.sync_demo_passwords(DEMO) == []
+    assert sorted(users.sync_demo_passwords("admin123")) == ["alice", "carol"]
+    assert users.authenticate("alice", "admin123") is not None
+    assert users.authenticate("alice", DEMO) is None
+    assert users.get("alice").must_change
+    # bob set his own password, so it is kept
+    assert users.authenticate("bob", "Summer2026Pass") is not None
+
+
 def test_password_policy(users):
     with pytest.raises(PasswordPolicyError):
         users.create("dave", "short1", "employee", ["policy"])
