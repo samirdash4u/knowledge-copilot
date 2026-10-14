@@ -8,6 +8,8 @@ Docker. It replaces the Makefile targets, which need ``make`` and a POSIX shell.
     python scripts/manage.py up           build and start everything
     python scripts/manage.py pull-model   download the LLM into Ollama
     python scripts/manage.py add-doc F    convert a PDF/DOCX into a tagged document in data/corpus
+    python scripts/manage.py add-tenant N create a tenant (corpus folder) and give users access
+    python scripts/manage.py users ...    manage accounts: list, add, grant, revoke, reset-password
     python scripts/manage.py ingest       index the documents
     python scripts/manage.py status       health check and the URLs to open
     python scripts/manage.py logs         follow the API logs
@@ -23,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import secrets
 import shutil
 import socket
@@ -201,14 +204,8 @@ def add_doc(args: argparse.Namespace) -> None:
     tenant = args.tenant or choose("Tenant", tenants)
     role = args.min_role or choose("Minimum role (who may see it)", ROLES)
     docker_check()
-    # The corpus is read-only inside the API container, so mount it writable at another path for
-    # this one run, along with the folder holding the file. --build picks up new dependencies.
-    cmd = compose_cmd() + ["run", "--rm", "--build", "--no-deps"]
-    if hasattr(os, "getuid"):  # Linux/macOS: create the file as you, not as root
-        cmd += ["--user", f"{os.getuid()}:{os.getgid()}"]
-    cmd += [
+    cmd = corpus_run(corpus) + [
         "--volume", f"{source.parent}:/input:ro",
-        "--volume", f"{corpus}:/corpus",
         "api", "copilot", "add-doc", f"/input/{source.name}",
         "--corpus-dir", "/corpus", "--tenant", tenant, "--min-role", role,
     ]  # fmt: skip
@@ -223,6 +220,52 @@ def add_doc(args: argparse.Namespace) -> None:
         ingest(args)
     else:
         print("Next: 'python scripts/manage.py ingest' to index it")
+
+
+def corpus_run(corpus: Path) -> list[str]:
+    """``docker compose run`` for a command that writes to data/corpus.
+
+    The corpus is read-only inside the API container, so mount it writable at /corpus for this
+    one run. --build picks up new dependencies.
+    """
+    cmd = compose_cmd() + ["run", "--rm", "--build", "--no-deps"]
+    if hasattr(os, "getuid"):  # Linux/macOS: create files as you, not as root
+        cmd += ["--user", f"{os.getuid()}:{os.getgid()}"]
+    return cmd + ["--volume", f"{corpus}:/corpus"]
+
+
+TENANT_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,39}")
+
+
+def add_tenant(args: argparse.Namespace) -> None:
+    if not TENANT_NAME.fullmatch(args.name):
+        fail(f"tenant name must be lowercase letters, digits, '-' or '_', got {args.name!r}")
+    folder = ROOT / "data" / "corpus" / args.name
+    if folder.exists():
+        fail(f"tenant {args.name!r} already exists ({folder})")
+    label = (args.label or "").strip() or args.name.replace("-", " ").replace("_", " ").title()
+    folder.mkdir(parents=True)
+    # A JSON string is valid YAML, so no YAML library is needed here.
+    (folder / "tenant.yaml").write_text(f"label: {json.dumps(label)}\n", encoding="utf-8")
+    print(f"created tenant {args.name} ({label}) in {folder}")
+    if args.grant or args.grant_all:
+        # User accounts live in the API's data volume, so the grant runs in the container.
+        docker_check()
+        cmd = compose_cmd() + ["run", "--rm", "--build", "--no-deps", "api"]
+        cmd += ["copilot", "tenants", "add", args.name, "--exist-ok"]
+        cmd += ["--grant-all"] if args.grant_all else ["--grant", args.grant]
+        run(cmd)
+    else:
+        print(f"Give users access with: python scripts/manage.py users grant <user> {args.name}")
+    print(f"Next: python scripts/manage.py add-doc <file> --tenant {args.name}, then ingest")
+
+
+def users(args: argparse.Namespace) -> None:
+    docker_check()
+    run(
+        compose_cmd()
+        + ["run", "--rm", "--build", "--no-deps", "api", "copilot", "users", *args.rest]
+    )
 
 
 def ingest(_: argparse.Namespace) -> None:
@@ -404,6 +447,20 @@ def main() -> None:
     p.add_argument("--force", action="store_true", help="replace an existing document")
     p.add_argument("--ingest", action="store_true", help="re-index straight away")
     p.set_defaults(func=add_doc)
+    p = sub.add_parser("add-tenant", help="create a tenant and optionally give users access")
+    p.add_argument("name", help="folder name, e.g. legal")
+    p.add_argument("--label", help="name shown in the web UI, e.g. 'Legal'")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--grant", help="comma-separated users to give access, e.g. alice,bob")
+    g.add_argument("--grant-all", action="store_true", help="give every existing user access")
+    p.set_defaults(func=add_tenant)
+    p = sub.add_parser(
+        "users",
+        help="manage web UI accounts (list, add, grant, revoke, reset-password)",
+        add_help=False,
+    )
+    p.add_argument("rest", nargs=argparse.REMAINDER)
+    p.set_defaults(func=users)
     sub.add_parser("ingest", help="index the documents").set_defaults(func=ingest)
     sub.add_parser("eval", help="run the evaluation set").set_defaults(func=evaluate)
     sub.add_parser("logs", help="follow API logs").set_defaults(func=logs)
@@ -435,7 +492,12 @@ def main() -> None:
     p.add_argument("--dry-run", action="store_true", help="show what would be removed")
     p.add_argument("-y", "--yes", action="store_true", help="don't ask for confirmation")
     p.set_defaults(func=clean)
-    args = parser.parse_args()
+    # 'users' passes everything after it to 'copilot users', including options like --help.
+    args, extra = parser.parse_known_args()
+    if args.func is users:
+        args.rest = extra + args.rest
+    elif extra:
+        parser.error(f"unrecognized arguments: {' '.join(extra)}")
     args.func(args)
 
 
