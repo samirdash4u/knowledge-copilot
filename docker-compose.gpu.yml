@@ -1,0 +1,13 @@
+# Adds NVIDIA GPU access for Ollama. Used by `python scripts/manage.py up --gpu`
+# or when COPILOT_GPU=true is set in .env.
+# Needs: Linux with the NVIDIA Container Toolkit, or Windows with Docker Desktop (WSL 2 backend)
+# and a current NVIDIA driver. See docs/install-linux.md and docs/install-windows.md.
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

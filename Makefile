@@ -1,4 +1,8 @@
-.PHONY: install test lint up pull-model ingest eval eval-offline
+# Thin wrappers around scripts/manage.py for Linux/macOS users who have make.
+# On Windows, run `python scripts/manage.py <command>` directly.
+PY ?= python3
+
+.PHONY: install test lint setup up up-gpu down pull-model ingest eval status logs eval-offline
 
 install:
 	uv venv && uv pip install -e ".[ml,dev]"
@@ -9,18 +13,11 @@ test:
 lint:
 	ruff check src tests && ruff format --check src tests
 
-up:
-	cp -n .env.example .env || true
-	docker compose up -d --build
+setup up down pull-model ingest eval status logs:
+	$(PY) scripts/manage.py $@
 
-pull-model:
-	docker compose exec ollama ollama pull $${COPILOT_OLLAMA_MODEL:-qwen2.5:7b-instruct-q4_K_M}
-
-ingest:
-	docker compose run --rm api copilot ingest
-
-eval:
-	docker compose run --rm -v ./reports:/app/reports api copilot eval
+up-gpu:
+	$(PY) scripts/manage.py up --gpu
 
 eval-offline:
 	COPILOT_EMBEDDER=hash COPILOT_RERANKER=none COPILOT_VECTOR_STORE=memory COPILOT_CACHE=memory \
