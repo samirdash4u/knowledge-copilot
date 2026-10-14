@@ -48,6 +48,7 @@ fake LLM), so tests and CI run in seconds with no model downloads.
 - **Tagging.** Each document declares `min_role` in front matter. A section can be tightened with
   `<!-- acl: manager -->`; markers can only raise the bar, never lower it. A document with no
   `min_role` is treated as admin-only (fail closed).
+  To add your own policies or docs, see [Adding documents](docs/adding-documents.md).
 - **Pre-filtering.** The filter runs inside both searches, so restricted chunks never take top-k
   slots and never reach the reranker.
 - **Defense in depth.** Retrieved chunks are re-checked before prompting. A violation raises and the
@@ -75,6 +76,9 @@ python scripts/manage.py pull-model   # downloads the LLM (~4.7 GB)
 python scripts/manage.py ingest       # chunks, embeds and indexes data/corpus
 python scripts/manage.py status       # prints the URLs to open
 ```
+
+To add your own documents, drop them in `data/corpus/<tenant>/` and run `ingest` again; see
+[Adding documents](docs/adding-documents.md).
 
 `COPILOT_HOST` decides where the web UI is reachable: `0.0.0.0` means every network interface,
 `127.0.0.1` means this machine only, or you can give a specific IP. `COPILOT_PORT` sets the port.
