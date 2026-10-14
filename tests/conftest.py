@@ -21,6 +21,8 @@ def settings(tmp_path_factory) -> Settings:
         cache="memory",
         dev_token_endpoint=True,
         jwt_secret="test-secret-that-is-at-least-32-bytes-long",
+        users_db=tmp_path_factory.mktemp("users") / "users.db",
+        password_hash_iterations=1_000,
     )
 
 

@@ -43,6 +43,46 @@ def _cmd_token(args: argparse.Namespace) -> None:
     print(issue_token(get_settings(), args.user, args.role, args.tenant))
 
 
+def _users():
+    from copilot.users import UserStore
+
+    s = get_settings()
+    return UserStore(s.users_db, s.password_hash_iterations)
+
+
+def _read_password(args: argparse.Namespace) -> str:
+    import getpass
+
+    if args.password:
+        return args.password
+    pw = getpass.getpass("Password: ")
+    if pw != getpass.getpass("Repeat password: "):
+        sys.exit("passwords do not match")
+    return pw
+
+
+def _cmd_users_add(args: argparse.Namespace) -> None:
+    user = _users().create(
+        args.username,
+        _read_password(args),
+        args.role,
+        args.tenants.split(","),
+        must_change=not args.no_force_change,
+    )
+    print(f"created {user.username} ({user.role.label}, tenants: {', '.join(user.tenants)})")
+
+
+def _cmd_users_list(args: argparse.Namespace) -> None:
+    for u in _users().list():
+        flag = "  [must change password]" if u.must_change else ""
+        print(f"{u.username:<20} {u.role.label:<9} {','.join(u.tenants)}{flag}")
+
+
+def _cmd_users_reset(args: argparse.Namespace) -> None:
+    _users().set_password(args.username, _read_password(args), must_change=True)
+    print(f"password reset for {args.username}; they must change it at next login")
+
+
 def _cmd_eval(args: argparse.Namespace) -> None:
     from copilot.eval.runner import evaluate, format_table, load_questions
     from copilot.retrieval.vector import load_chunks
@@ -72,6 +112,10 @@ def _cmd_serve(args: argparse.Namespace) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    # Windows consoles default to a legacy code page; don't crash on characters it lacks.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(prog="copilot")
     sub = parser.add_subparsers(required=True)
@@ -100,7 +144,22 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--out", default="reports/eval.json")
     p.set_defaults(func=_cmd_eval)
 
-    p = sub.add_parser("serve", help="run the HTTP API")
+    users = sub.add_parser("users", help="manage web UI accounts").add_subparsers(required=True)
+    p = users.add_parser("add", help="create a user")
+    p.add_argument("username")
+    p.add_argument("--role", required=True, choices=[r.label for r in Role])
+    p.add_argument("--tenants", default="policy,engineering", help="comma-separated")
+    p.add_argument("--password", help="omit to be prompted")
+    p.add_argument("--no-force-change", action="store_true", help="skip first-login change")
+    p.set_defaults(func=_cmd_users_add)
+    p = users.add_parser("list", help="list users")
+    p.set_defaults(func=_cmd_users_list)
+    p = users.add_parser("reset-password", help="set a new password (must change at login)")
+    p.add_argument("username")
+    p.add_argument("--password", help="omit to be prompted")
+    p.set_defaults(func=_cmd_users_reset)
+
+    p = sub.add_parser("serve", help="run the HTTP API and web UI")
     p.add_argument("--host", default="0.0.0.0")
     p.add_argument("--port", type=int, default=8000)
     p.set_defaults(func=_cmd_serve)

@@ -8,6 +8,7 @@ services:
       COPILOT_REDIS_URL: redis://redis:6379/0
       COPILOT_OLLAMA_URL: http://ollama:11434
       COPILOT_INDEX_DIR: /index
+      COPILOT_USERS_DB: /index/users.db
     volumes:
       - ./data/corpus:/app/data/corpus:ro
       - index:/index
