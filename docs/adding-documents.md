@@ -140,18 +140,41 @@ alice (employee), bob (manager) and carol (admin).
 
 ## Adding a new tenant
 
-Create a new top-level folder, for example `data/corpus/legal/`, and ingest. Users only see the
-tenants listed on their account, so give the tenant to the users who need it:
+A tenant is a separate workspace with its own documents, for example `legal` next to `policy`
+and `engineering`. Users only see the tenants listed on their account.
 
 ```bash
-docker compose run --rm api copilot users add dana --role manager --tenants policy,legal
+python scripts/manage.py add-tenant legal --label "Legal" --grant alice,bob
 ```
+
+This creates `data/corpus/legal/` with a `tenant.yaml` holding the display name, which the web UI
+shows in the workspace picker (on the sign-in page and in the header). `--grant` gives the listed
+users access; use `--grant-all` for every existing user, or leave both out and grant later. The
+new workspace shows up in the web UI right away. Then add documents to it and re-index:
+
+```bash
+python scripts/manage.py add-doc "Contracts.docx" --tenant legal --min-role employee --ingest
+```
+
+Managing access later:
+
+```bash
+python scripts/manage.py users list                          # who has which tenants
+python scripts/manage.py users grant dana legal              # add a tenant to an account
+python scripts/manage.py users revoke dana legal             # remove it (takes effect at once)
+python scripts/manage.py users add erin --role employee --tenants legal
+```
+
+For a native install, use `copilot tenants add ...`, `copilot tenants list` and
+`copilot users grant ...`. Tenant names are lowercase letters, digits, `-` and `_`. To remove a
+tenant, delete its folder, revoke it from its users and re-index.
 
 ## Troubleshooting
 
 | Symptom | Cause |
 | --- | --- |
 | Answers never mention the new document | ingest wasn't re-run, or the file extension isn't supported |
+| A new workspace isn't in the picker for a user | grant it with `users grant <user> <tenant>` |
 | Only admins can see it | `min_role` is missing or the front matter isn't the first thing in the file |
 | `duplicate doc_id` error | two files in the same tenant share a `doc_id` (or file name) |
 | `unknown role` error | `min_role` or an `acl:` marker has a typo |

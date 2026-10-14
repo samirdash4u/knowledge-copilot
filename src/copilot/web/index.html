@@ -479,8 +479,25 @@
     ask(text);
   });
 
+  // Workspaces come from the corpus folders, so a tenant added later shows up without a UI change.
+  async function loadTenants() {
+    let list;
+    try { list = await api("/tenants", { auth: false }); } catch { return; }
+    if (!Array.isArray(list) || !list.length) return;
+    const sel = $("login-tenant");
+    const current = sel.value;
+    sel.innerHTML = "";
+    for (const t of list) {
+      TENANT_LABELS[t.name] = t.label;
+      const opt = document.createElement("option");
+      opt.value = t.name; opt.textContent = t.label; opt.selected = t.name === current;
+      sel.appendChild(opt);
+    }
+  }
+
   // ---------- boot ----------
   (async () => {
+    await loadTenants();
     if (!store.get()) return show("login-view");
     try { me = await api("/me"); } catch { store.clear(); me = null; }
     route();

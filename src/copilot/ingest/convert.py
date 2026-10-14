@@ -15,6 +15,7 @@ import yaml
 
 from copilot.ingest.loaders import SUPPORTED, _slug, load_file
 from copilot.models import Role
+from copilot.tenants import check_name
 
 CONVERTIBLE = {".pdf", ".docx"}
 
@@ -212,8 +213,7 @@ def import_document(
     """Convert ``source`` and write ``<corpus_dir>/<tenant>/<doc_id>.md``. Returns the new path."""
     if not source.is_file():
         raise FileNotFoundError(f"no such file: {source}")
-    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", tenant):
-        raise ValueError(f"tenant must be a lowercase folder name, got {tenant!r}")
+    check_name(tenant)
     role = Role.parse(min_role)
     converted = convert(source)
 

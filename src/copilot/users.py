@@ -167,6 +167,20 @@ class UserStore:
             )
         return self.get(username)  # type: ignore[return-value]
 
+    def set_tenants(self, username: str, tenants: list[str]) -> User:
+        """Replace the user's tenants. Removing one ends their sessions in it immediately."""
+        tenants = list(dict.fromkeys(t for t in tenants if t))
+        if not tenants:
+            raise ValueError("user needs at least one tenant")
+        with self._lock, self._connect() as db:
+            cur = db.execute(
+                "UPDATE users SET tenants = ?, updated_at = ? WHERE username = ?",
+                (",".join(tenants), time.time(), username.strip().lower()),
+            )
+            if cur.rowcount == 0:
+                raise KeyError(username)
+        return self.get(username.strip().lower())  # type: ignore[return-value]
+
     def authenticate(self, username: str, password: str) -> User | None:
         username = username.strip().lower()
         with self._connect() as db:

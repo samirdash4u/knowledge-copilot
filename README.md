@@ -78,7 +78,8 @@ python scripts/manage.py status       # prints the URLs to open
 ```
 
 To add your own documents, drop them in `data/corpus/<tenant>/` and run `ingest` again, or
-convert a PDF or Word file with `python scripts/manage.py add-doc <file>`; see
+convert a PDF or Word file with `python scripts/manage.py add-doc <file>`. New tenants are added
+with `python scripts/manage.py add-tenant <name>`; see
 [Adding documents](docs/adding-documents.md).
 
 `COPILOT_HOST` decides where the web UI is reachable: `0.0.0.0` means every network interface,

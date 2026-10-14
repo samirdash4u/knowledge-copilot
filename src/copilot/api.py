@@ -18,6 +18,7 @@ from copilot.auth import AuthError, decode_token, issue_token
 from copilot.config import Settings, get_settings
 from copilot.models import Principal
 from copilot.service import CopilotService
+from copilot.tenants import list_tenants
 from copilot.users import LoginThrottle, PasswordPolicyError, User, UserStore
 
 log = logging.getLogger(__name__)
@@ -156,6 +157,11 @@ def create_app(
     @app.get("/health")
     def health() -> dict:
         return {"status": "ok"}
+
+    @app.get("/tenants")
+    def tenants() -> list[dict]:
+        """Workspace names and labels for the sign-in picker. No documents or users are listed."""
+        return [{"name": t.name, "label": t.label} for t in list_tenants(settings.corpus_dir)]
 
     # ---------- auth ----------
 

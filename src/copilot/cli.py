@@ -1,4 +1,4 @@
-"""Command line: ``copilot ingest | add-doc | ask | token | eval | users | serve``."""
+"""Command line: ``copilot ingest | add-doc | tenants | ask | token | eval | users | serve``."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def _cmd_add_doc(args: argparse.Namespace) -> None:
     tenant = args.tenant or _choose("Tenant", tenants or ["policy", "engineering"])
     role = args.min_role or _choose("Minimum role", [r.label for r in Role])
     if tenants and tenant not in tenants:
-        print(f"note: {tenant!r} is a new tenant; give it to users with 'copilot users add'")
+        sys.exit(f"error: no tenant {tenant!r}; create it first with 'tenants add {tenant}'")
     try:
         out = import_document(
             Path(args.file),
@@ -125,6 +125,69 @@ def _cmd_users_list(args: argparse.Namespace) -> None:
 def _cmd_users_reset(args: argparse.Namespace) -> None:
     _users().set_password(args.username, _read_password(args), must_change=True)
     print(f"password reset for {args.username}; they must change it at next login")
+
+
+def _cmd_users_grant(args: argparse.Namespace) -> None:
+    from copilot.tenants import list_tenants
+
+    known = {t.name for t in list_tenants(_corpus(args))}
+    unknown = [t for t in args.tenants if t not in known]
+    if unknown:
+        sys.exit(f"error: no such tenant: {', '.join(unknown)} (create it with 'tenants add')")
+    store = _users()
+    user = store.get(args.username)
+    if user is None:
+        sys.exit(f"error: no such user: {args.username}")
+    user = store.set_tenants(user.username, user.tenants + args.tenants)
+    print(f"{user.username} now has: {', '.join(user.tenants)}")
+
+
+def _cmd_users_revoke(args: argparse.Namespace) -> None:
+    store = _users()
+    user = store.get(args.username)
+    if user is None:
+        sys.exit(f"error: no such user: {args.username}")
+    try:
+        user = store.set_tenants(user.username, [t for t in user.tenants if t not in args.tenants])
+    except ValueError:
+        sys.exit("error: a user needs at least one tenant; grant another before revoking this one")
+    print(f"{user.username} now has: {', '.join(user.tenants)}")
+
+
+def _corpus(args: argparse.Namespace) -> Path:
+    return Path(args.corpus_dir) if getattr(args, "corpus_dir", None) else get_settings().corpus_dir
+
+
+def _cmd_tenants_list(args: argparse.Namespace) -> None:
+    from copilot.tenants import list_tenants
+
+    users = _users().list()
+    for t in list_tenants(_corpus(args)):
+        names = ", ".join(u.username for u in users if t.name in u.tenants) or "-"
+        print(f"{t.name:<16} {t.label:<24} {t.documents:>3} docs   users: {names}")
+
+
+def _cmd_tenants_add(args: argparse.Namespace) -> None:
+    from copilot.tenants import create_tenant
+
+    try:
+        tenant = create_tenant(_corpus(args), args.name, args.label, exist_ok=args.exist_ok)
+    except (ValueError, FileExistsError) as exc:
+        sys.exit(f"error: {exc}")
+    print(f"tenant {tenant.name} ({tenant.label}) is ready")
+    store = _users()
+    if args.grant_all:
+        grantees = [u.username for u in store.list()]
+    else:
+        grantees = [u.strip().lower() for u in (args.grant or "").split(",") if u.strip()]
+    for name in grantees:
+        user = store.get(name)
+        if user is None:
+            print(f"  ! no such user: {name}")
+            continue
+        store.set_tenants(user.username, user.tenants + [tenant.name])
+        print(f"  gave {user.username} access")
+    print("Next: add documents with 'add-doc --tenant " + tenant.name + "', then run ingest.")
 
 
 def _cmd_eval(args: argparse.Namespace) -> None:
@@ -242,6 +305,31 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("username")
     p.add_argument("--password", help="omit to be prompted")
     p.set_defaults(func=_cmd_users_reset)
+
+    p = users.add_parser("grant", help="give a user access to tenants")
+    p.add_argument("username")
+    p.add_argument("tenants", nargs="+")
+    p.add_argument("--corpus-dir", help="default: COPILOT_CORPUS_DIR or data/corpus")
+    p.set_defaults(func=_cmd_users_grant)
+    p = users.add_parser("revoke", help="remove a user's access to tenants")
+    p.add_argument("username")
+    p.add_argument("tenants", nargs="+")
+    p.set_defaults(func=_cmd_users_revoke)
+
+    tenants = sub.add_parser("tenants", help="manage tenants (corpus folders)")
+    tenants = tenants.add_subparsers(required=True)
+    p = tenants.add_parser("list", help="list tenants, document counts and users")
+    p.add_argument("--corpus-dir", help="default: COPILOT_CORPUS_DIR or data/corpus")
+    p.set_defaults(func=_cmd_tenants_list)
+    p = tenants.add_parser("add", help="create a tenant and optionally give users access")
+    p.add_argument("name", help="folder name, e.g. legal")
+    p.add_argument("--label", help="name shown in the web UI, e.g. 'Legal'")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--grant", help="comma-separated users to give access, e.g. alice,bob")
+    g.add_argument("--grant-all", action="store_true", help="give every existing user access")
+    p.add_argument("--corpus-dir", help="default: COPILOT_CORPUS_DIR or data/corpus")
+    p.add_argument("--exist-ok", action="store_true", help="don't fail if it exists; just grant")
+    p.set_defaults(func=_cmd_tenants_add)
 
     p = sub.add_parser("serve", help="run the HTTP API and web UI")
     p.add_argument("--host", help="address to listen on (default: COPILOT_HOST or 127.0.0.1)")
