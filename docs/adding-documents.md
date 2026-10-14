@@ -6,6 +6,36 @@ stores them in the search index; at question time the copilot retrieves the chun
 allowed to see and the model answers from those, with citations. A new document is searchable as
 soon as it is ingested.
 
+## Quick way: import a PDF or Word file
+
+`add-doc` converts a `.pdf` or `.docx` into a tagged Markdown file in `data/corpus/<tenant>/`:
+
+```bash
+python scripts/manage.py add-doc "C:\Users\me\Downloads\Travel Policy.docx" --tenant policy --min-role employee --ingest
+```
+
+Leave out `--tenant` or `--min-role` and it asks for them. `--ingest` re-indexes straight away;
+without it, review the new file and run `python scripts/manage.py ingest` yourself. Other options:
+`--title`, `--doc-id` (also the file name; defaults to the source file name), `--source` and
+`--force` to replace a document you imported before. For a native install, the same command is
+`copilot add-doc <file> ...`.
+
+How the conversion works:
+
+- **Word:** Heading 1–3 styles become sections, bullet and numbered lists stay lists, and tables
+  become Markdown tables. The document's Title property (or Title-styled paragraph) becomes the
+  title.
+- **PDF:** PDFs carry no heading structure, so it recognises numbered headings such as
+  `2.1 Scope` and short ALL-CAPS lines. If it finds none, each page becomes a section
+  (`Page 1`, `Page 2`, ...). Scanned PDFs without a text layer are refused; run OCR first.
+- Old `.doc` files aren't supported; save them as `.docx`.
+
+The result is plain Markdown, so open it and check it before indexing: fix any headings the PDF
+conversion missed, and add `<!-- acl: manager -->` under a heading to restrict that section (see
+below). The original file isn't copied into the corpus.
+
+The rest of this guide covers adding files by hand.
+
 ## 1. Put the file in the right folder
 
 ```
