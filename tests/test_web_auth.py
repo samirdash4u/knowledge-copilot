@@ -168,3 +168,4 @@ def test_index_page_served(client):
     r = client.get("/")
     assert r.status_code == 200
     assert "Knowledge Copilot" in r.text
+    assert r.headers["cache-control"] == "no-cache"

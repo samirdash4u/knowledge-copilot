@@ -278,9 +278,12 @@ def users(args: argparse.Namespace) -> None:
 
 def ingest(_: argparse.Namespace) -> None:
     docker_check()
-    run(compose_cmd() + ["run", "--rm", "api", "copilot", "ingest"])
-    # The API loads the index once; restart it so it picks up the new one.
-    run(compose_cmd() + ["restart", "api"])
+    run(compose_cmd() + ["run", "--rm", "--build", "api", "copilot", "ingest"])
+    # The API loads the index once, so start a fresh API container. 'restart' would keep the old
+    # container and with it the old image, so code pulled since the last 'up' would not run.
+    run(compose_cmd() + ["up", "-d", "--no-deps", "--force-recreate", "api"])
+    if not wait_healthy():
+        print("the API did not answer yet; check 'python scripts/manage.py logs'")
 
 
 def evaluate(_: argparse.Namespace) -> None:
