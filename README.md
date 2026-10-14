@@ -121,6 +121,34 @@ copilot users add dave --role manager --tenants policy,engineering   # prompts f
 copilot users reset-password alice                                    # must change at next login
 ```
 
+### Cleaning up
+
+`clean` stops the stack and removes what the project generated. It shows what it will delete and
+asks before doing anything:
+
+```bash
+python scripts/manage.py clean --dry-run   # show the plan, change nothing
+python scripts/manage.py clean             # containers, network, index, eval reports, caches
+python scripts/manage.py clean --data      # also the Qdrant and index volumes and data/users.db
+python scripts/manage.py clean --models    # also the downloaded LLM and embedding models (~6 GB)
+python scripts/manage.py clean --images    # also the locally built API image
+python scripts/manage.py clean --all       # all of the above, plus .env and .venv
+```
+
+| Option | Removes | After it, run |
+|---|---|---|
+| *(none)* | containers and network, `data/index`, `reports/eval*.json`, Python and tool caches | `up`, `ingest` |
+| `--data` | the `index` and `qdrant` volumes and `data/users.db`; all user accounts and changed passwords | `up`, `ingest` (demo users come back with the demo password) |
+| `--models` | the `ollama` and `hf-models` volumes | `pull-model`, `ingest` |
+| `--images` | the locally built API image | `up` (rebuilds it) |
+| `--all` | everything above, plus `.env` (your settings and JWT secret) and `.venv` | start again from `setup` |
+
+Add `-y` to skip the confirmation, for example in scripts. The documents in `data/corpus` and
+everything under version control are never touched. If Docker is not running, `clean` still
+removes the local files and says it left containers and volumes alone. For a native install, Ollama
+and Hugging Face keep their models in your user profile (`ollama rm <model>` and
+`~/.cache/huggingface`), outside the project, so `clean` leaves them in place.
+
 ### Development without Docker
 
 Tests and the offline eval need no models or services:

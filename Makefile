@@ -2,7 +2,7 @@
 # On Windows, run `python scripts/manage.py <command>` directly.
 PY ?= python3
 
-.PHONY: install test lint setup up up-gpu down pull-model ingest eval status logs eval-offline
+.PHONY: install test lint setup up up-gpu down pull-model ingest eval status logs clean eval-offline
 
 install:
 	uv venv && uv pip install -e ".[ml,dev]"
@@ -13,7 +13,7 @@ test:
 lint:
 	ruff check src tests && ruff format --check src tests
 
-setup up down pull-model ingest eval status logs:
+setup up down pull-model ingest eval status logs clean:
 	$(PY) scripts/manage.py $@
 
 up-gpu:

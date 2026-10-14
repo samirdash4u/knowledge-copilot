@@ -28,6 +28,7 @@ jobs:
         run: |
           python scripts/manage.py --help
           python scripts/manage.py setup
+          python scripts/manage.py clean --dry-run
           if [ "$RUNNER_OS" = "Linux" ]; then
             docker compose -f docker-compose.yml -f docker-compose.gpu.yml config --quiet
           fi

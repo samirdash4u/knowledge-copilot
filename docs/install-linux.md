@@ -235,6 +235,30 @@ docker compose exec api copilot users add dave --role manager   # path A
 copilot users add dave --role manager                            # path B, venv active
 ```
 
+## 8. Clean up
+
+Run these in the project folder. Each command lists what it will delete and asks first; add
+`--dry-run` to only see the list.
+
+```bash
+python3 scripts/manage.py clean            # stop containers; delete the index, eval reports, caches
+python3 scripts/manage.py clean --data     # also Qdrant data and user accounts (data/users.db)
+python3 scripts/manage.py clean --models   # also the downloaded models (~6 GB)
+python3 scripts/manage.py clean --all      # everything, including .env and .venv
+```
+
+`make clean` runs the first one. After `clean`, run `up` and `ingest` again. After `--models`, also
+run `pull-model`. After `--all`, start again from step 4. The documents in `data/corpus` are never
+deleted.
+
+To uninstall completely, also:
+
+- remove the firewall rule from step 6;
+- path A: `docker image rm qdrant/qdrant:v1.12.4 redis:7.4-alpine ollama/ollama:0.5.7`;
+- path B: `ollama rm qwen2.5:7b-instruct-q4_K_M` and `rm -rf ~/.cache/huggingface` (shared with
+  any other Hugging Face projects, so check first);
+- delete the project folder.
+
 ## Troubleshooting
 
 | Problem | Fix |
