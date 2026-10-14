@@ -205,6 +205,26 @@ class UserStore:
             self.create(name, password, role, DEMO_TENANTS, must_change=True, enforce_policy=False)
         return [n for n, _ in DEMO_USERS]
 
+    def sync_demo_passwords(self, password: str) -> list[str]:
+        """Give demo accounts that were never signed into the current demo password.
+
+        The accounts are created only once, so without this a later change to
+        COPILOT_DEMO_PASSWORD would never reach them. Accounts whose owner already set their
+        own password are left alone. Returns the usernames updated.
+        """
+        updated = []
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT username, password_hash FROM users WHERE must_change = 1"
+                " AND username IN (?, ?, ?)",
+                [n for n, _ in DEMO_USERS],
+            ).fetchall()
+        for row in rows:
+            if not verify_password(password, row["password_hash"]):
+                self.set_password(row["username"], password, must_change=True)
+                updated.append(row["username"])
+        return updated
+
 
 class LoginThrottle:
     """Lock a username out for a while after repeated failed logins."""

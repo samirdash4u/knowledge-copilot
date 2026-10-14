@@ -115,7 +115,7 @@ you're most likely to change:
 | `COPILOT_HOST` | Address the web UI listens on. `0.0.0.0` means all network interfaces (reachable from other machines once the firewall allows it). `127.0.0.1` means this PC only. You can also give one specific IP of this PC, for example `192.168.1.20`. |
 | `COPILOT_PORT` | Port for the web UI, `8000` by default. Change it if 8000 is already taken. |
 | `COPILOT_GPU` | `true` to run the LLM on the NVIDIA GPU (path A). |
-| `COPILOT_DEMO_PASSWORD` | Initial password of the demo users alice, bob and carol. |
+| `COPILOT_DEMO_PASSWORD` | Initial password of the demo users alice, bob and carol. After a change, run `up` again; demo users who already chose their own password keep it. |
 | `COPILOT_OLLAMA_MODEL` | The LLM. The default `qwen2.5:7b-instruct-q4_K_M` fits an 8 GB GPU. |
 
 To find this PC's IP address, run `ipconfig` and look for **IPv4 Address** under your Wi-Fi or
@@ -248,6 +248,7 @@ To uninstall completely, also:
 
 | Problem | Fix |
 |---|---|
+| *invalid username or password* for a demo user | The user already chose a password, or `up` wasn't run again after `COPILOT_DEMO_PASSWORD` changed. Reset it with `copilot users reset-password alice` (in Docker: `docker compose exec api copilot users reset-password alice`). Five wrong attempts lock the account for five minutes. |
 | `make` is not recognized | Windows has no `make`. Use `python scripts\manage.py <command>` instead. |
 | `docker` is not recognized | Reopen PowerShell after installing Docker Desktop. Check that `C:\Program Files\Docker\Docker\resources\bin` is on `PATH`. |
 | *Docker daemon is not reachable* / `error during connect ... docker_engine` | Start Docker Desktop and wait for **Engine running**. |

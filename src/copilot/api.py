@@ -104,6 +104,13 @@ def create_app(
                 " first login",
                 ", ".join(created),
             )
+        synced = users.sync_demo_passwords(settings.demo_password)
+        if synced:
+            log.warning(
+                "set the password of demo users %s to COPILOT_DEMO_PASSWORD (they had not"
+                " signed in yet)",
+                ", ".join(synced),
+            )
     app.state.users = users
     throttle = LoginThrottle(settings.login_max_failures, settings.login_lockout_s)
 

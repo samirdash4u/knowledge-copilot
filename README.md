@@ -102,8 +102,9 @@ change and a chat that shows each answer's sources, plus a workspace switch betw
 policy and engineering docs.
 
 Accounts are stored in SQLite (`data/users.db`, or `/index/users.db` in Docker). On first start
-the server creates three demo accounts, all with the password `ChangeMe123`, which each must change
-at first login:
+the server creates three demo accounts with the password from `COPILOT_DEMO_PASSWORD` (default
+`ChangeMe123`), which each must change at first login. Changing that setting later and running `up` again
+updates the demo accounts that haven't signed in yet:
 
 | Username | Role |
 |---|---|
