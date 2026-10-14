@@ -16,4 +16,4 @@ COPY data ./data
 COPY eval ./eval
 
 EXPOSE 8000
-CMD ["copilot", "serve", "--port", "8000"]
+CMD ["copilot", "serve", "--host", "0.0.0.0", "--port", "8000"]

@@ -12,6 +12,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="COPILOT_", env_file=".env", extra="ignore")
 
+    # Server: where `copilot serve` listens. 127.0.0.1 = this machine only; 0.0.0.0 = every
+    # network interface (needed to open the UI from other machines).
+    host: str = "127.0.0.1"
+    port: int = 8000
+
     # Paths
     corpus_dir: Path = Path("data/corpus")
     index_dir: Path = Path("data/index")

@@ -105,10 +105,37 @@ def _cmd_eval(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def _lan_addresses() -> list[str]:
+    """Best-effort list of this machine's IPv4 addresses (no traffic is sent)."""
+    import socket
+
+    addrs: set[str] = set()
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("192.0.2.1", 80))  # TEST-NET address; connect() on UDP sends nothing
+            addrs.add(s.getsockname()[0])
+    except OSError:
+        pass
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            addrs.add(info[4][0])
+    except OSError:
+        pass
+    return sorted(a for a in addrs if not a.startswith("127."))
+
+
 def _cmd_serve(args: argparse.Namespace) -> None:
     import uvicorn
 
-    uvicorn.run("copilot.api:app_factory", factory=True, host=args.host, port=args.port)
+    s = get_settings()
+    host = args.host or s.host
+    port = args.port or s.port
+    if host == "0.0.0.0":
+        urls = [f"http://localhost:{port}"] + [f"http://{a}:{port}" for a in _lan_addresses()]
+    else:
+        urls = [f"http://{host}:{port}"]
+    print("Knowledge Copilot web UI:", *urls, sep="\n  ")
+    uvicorn.run("copilot.api:app_factory", factory=True, host=host, port=port)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -160,8 +187,8 @@ def main(argv: list[str] | None = None) -> None:
     p.set_defaults(func=_cmd_users_reset)
 
     p = sub.add_parser("serve", help="run the HTTP API and web UI")
-    p.add_argument("--host", default="0.0.0.0")
-    p.add_argument("--port", type=int, default=8000)
+    p.add_argument("--host", help="address to listen on (default: COPILOT_HOST or 127.0.0.1)")
+    p.add_argument("--port", type=int, help="port (default: COPILOT_PORT or 8000)")
     p.set_defaults(func=_cmd_serve)
 
     args = parser.parse_args(argv)

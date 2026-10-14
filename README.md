@@ -61,26 +61,24 @@ fake LLM), so tests and CI run in seconds with no model downloads.
 
 ## Quick start
 
-Requirements: Docker with the NVIDIA container toolkit (or delete the `deploy` block in
-`docker-compose.yml` to run the LLM on CPU).
+Step-by-step guides, including prerequisites, GPU setup and firewall rules:
+
+- **[Windows](docs/install-windows.md)**: Docker Desktop on WSL 2, or native Python with Ollama for Windows
+- **[Linux](docs/install-linux.md)**: Docker Engine, or native Python with Ollama
+
+The short version, the same on both (use `python3` on Linux):
 
 ```bash
-make up            # start api, qdrant, redis, ollama
-make pull-model    # download the LLM (~4.7 GB)
-make ingest        # chunk, embed and index data/corpus
+python scripts/manage.py setup        # creates .env; set COPILOT_HOST / COPILOT_PORT there
+python scripts/manage.py up           # add --gpu for an NVIDIA GPU
+python scripts/manage.py pull-model   # downloads the LLM (~4.7 GB)
+python scripts/manage.py ingest       # chunks, embeds and indexes data/corpus
+python scripts/manage.py status       # prints the URLs to open
 ```
 
-```bash
-# get a token for a role (dev-only endpoint, enabled in .env.example)
-TOKEN=$(curl -s localhost:8000/auth/dev-token -H 'content-type: application/json' \
-  -d '{"role":"employee","tenant":"policy"}' | jq -r .access_token)
-
-curl -s localhost:8000/ask -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-  -d '{"question":"How many days of annual leave do I get?"}' | jq
-```
-
-Try the same question as `employee` and `manager`, for example *"Up to what amount can a manager
-approve an expense claim?"*.
+`COPILOT_HOST` decides where the web UI is reachable: `0.0.0.0` means every network interface,
+`127.0.0.1` means this machine only, or you can give a specific IP. `COPILOT_PORT` sets the port.
+Qdrant, Redis and Ollama are only ever published on `127.0.0.1`.
 
 ### Role demo scripts
 
@@ -93,12 +91,13 @@ should not be able to answer:
 ./scripts/demo/ask-as-admin.sh      # adds admin-only content; the other tenant is still refused
 ```
 
-Set `BASE_URL` if the API isn't on `http://localhost:8000`. Each question is labelled with the
+Set `BASE_URL` if the API isn't on `http://localhost:8000`. The scripts use the dev token
+endpoint, so set `COPILOT_DEV_TOKEN_ENDPOINT=true` (keep `COPILOT_HOST=127.0.0.1` while it is on). Each question is labelled with the
 expected outcome (`answer` or `refuse`).
 
 ### Web UI
 
-Open **http://localhost:8000** after `make up` and `make ingest`. The page has sign-in, password
+Open the URL printed by `python scripts/manage.py status` (for example http://localhost:8000). The page has sign-in, password
 change and a chat that shows each answer's sources, plus a workspace switch between company
 policy and engineering docs.
 
@@ -122,41 +121,18 @@ copilot users add dave --role manager --tenants policy,engineering   # prompts f
 copilot users reset-password alice                                    # must change at next login
 ```
 
-### Without Docker (Linux, macOS or Windows)
+### Development without Docker
 
-Everything is plain Python, so it runs natively on any of the three. Install
-[Ollama](https://ollama.com) for your OS, then:
-
-```bash
-ollama pull qwen2.5:7b-instruct-q4_K_M
-uv venv
-uv pip install -e ".[ml,dev]"
-```
-
-Activate the environment, using `source .venv/bin/activate` on Linux and macOS or
-`.venv\Scripts\activate` in Windows PowerShell. Then run Qdrant and Redis in memory instead of as
-services, and start the server:
+Tests and the offline eval need no models or services:
 
 ```bash
-# Linux / macOS
-export COPILOT_VECTOR_STORE=memory COPILOT_CACHE=memory
-copilot ingest
-copilot serve            # then open http://localhost:8000
-```
-
-```powershell
-# Windows PowerShell
-$env:COPILOT_VECTOR_STORE = "memory"; $env:COPILOT_CACHE = "memory"
-copilot ingest
-copilot serve            # then open http://localhost:8000
-```
-
-Tests and the offline eval need no models at all:
-
-```bash
+uv venv && uv pip install -e ".[dev]"
 pytest -q
-make eval-offline        # on Windows, run the two commands from the Makefile by hand
+make eval-offline
 ```
+
+To run the full app natively with Ollama, see path B in the [Windows](docs/install-windows.md) or
+[Linux](docs/install-linux.md) guide.
 
 ## Evaluation
 
@@ -174,7 +150,7 @@ make eval-offline        # on Windows, run the two commands from the Makefile by
 | cross_tenant | 1 | asking one tenant about another tenant's documents |
 
 ```bash
-make eval   # all four retrieval modes, with the real models
+python scripts/manage.py eval   # all four retrieval modes, with the real models
 ```
 
 The report gives recall@k, MRR, refusal accuracy, keyword accuracy, citation coverage, leaks and

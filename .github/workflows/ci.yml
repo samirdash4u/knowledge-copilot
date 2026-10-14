@@ -23,6 +23,15 @@ jobs:
       - name: Lint
         if: runner.os == 'Linux'
         run: ruff check src tests && ruff format --check src tests
+      - name: Helper script and compose files
+        shell: bash
+        run: |
+          python scripts/manage.py --help
+          python scripts/manage.py setup
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            docker compose -f docker-compose.yml -f docker-compose.gpu.yml config --quiet
+          fi
+          rm .env
       - name: Tests (offline backends, includes ACL leak and cache-poisoning tests)
         run: pytest -q
       - name: Offline eval (fails on any leak)
