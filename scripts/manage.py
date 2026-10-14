@@ -12,6 +12,7 @@ Docker. It replaces the Makefile targets, which need ``make`` and a POSIX shell.
     python scripts/manage.py logs         follow the API logs
     python scripts/manage.py eval         run the evaluation set
     python scripts/manage.py down         stop everything (data is kept)
+    python scripts/manage.py clean        remove containers and generated files (see --help)
 
 Set COPILOT_GPU=true in .env (or pass --gpu to ``up``) to run the LLM on an NVIDIA GPU.
 """
@@ -19,9 +20,12 @@ Set COPILOT_GPU=true in .env (or pass --gpu to ``up``) to run the LLM on an NVID
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import secrets
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -198,6 +202,132 @@ def status(_: argparse.Namespace) -> None:
         print(f"  {u}")
 
 
+# Docker volumes by what they hold. Names match docker-compose.yml.
+DATA_VOLUMES = ["index", "qdrant"]  # vector index, chunk store and the users database
+MODEL_VOLUMES = ["ollama", "hf-models"]  # downloaded LLM and embedding/reranker models
+
+# Files created by ingest, eval, tests and tooling; always safe to delete.
+GENERATED_PATHS = [
+    "data/index",
+    "reports/eval.json",
+    "reports/eval-offline.json",
+    ".pytest_cache",
+    ".ruff_cache",
+]
+USER_DATA_PATHS = ["data/users.db", "data/users.db-journal"]
+
+
+def project_name() -> str:
+    """Compose project name, which prefixes the volume names."""
+    try:
+        out = subprocess.run(
+            compose_cmd() + ["config", "--format", "json"],
+            capture_output=True,
+            text=True,
+            cwd=ROOT,
+        )
+        if out.returncode == 0:
+            return json.loads(out.stdout)["name"]
+    except (OSError, ValueError, KeyError):
+        pass
+    return "".join(c for c in ROOT.name.lower() if c.isalnum() or c in "-_")
+
+
+def docker_available() -> bool:
+    if shutil.which("docker") is None:
+        return False
+    return subprocess.run(["docker", "info"], capture_output=True).returncode == 0
+
+
+def _force_remove(func, path, _exc) -> None:
+    # Windows marks some files (e.g. inside .venv or .git) read-only; clear the flag and retry.
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
+def remove_path(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        if sys.version_info >= (3, 12):
+            shutil.rmtree(path, onexc=_force_remove)
+        else:
+            shutil.rmtree(path, onerror=_force_remove)
+    elif path.exists() or path.is_symlink():
+        path.unlink()
+
+
+def clean(args: argparse.Namespace) -> None:
+    if args.all:
+        args.data = args.models = args.images = True
+
+    volumes: list[str] = []
+    if args.data:
+        volumes += DATA_VOLUMES
+    if args.models:
+        volumes += MODEL_VOLUMES
+
+    local = [ROOT / p for p in GENERATED_PATHS]
+    local += sorted((ROOT / "src").rglob("__pycache__")) + sorted(
+        (ROOT / "tests").rglob("__pycache__")
+    )
+    if args.data:
+        local += [ROOT / p for p in USER_DATA_PATHS]
+    if args.all:
+        local += [ROOT / ".venv", ENV_FILE]
+    local = [p for p in local if p.exists()]
+
+    use_docker = docker_available()
+    project = project_name() if use_docker else ""
+
+    print("This will:")
+    if use_docker:
+        print("  - stop and remove the Knowledge Copilot containers and network")
+        if args.images:
+            print("  - remove the locally built API image")
+        for v in volumes:
+            print(f"  - delete Docker volume {project}_{v}")
+    else:
+        print("  - (Docker is not running, so containers and volumes are left alone)")
+    for p in local:
+        print(f"  - delete {p.relative_to(ROOT)}")
+    if args.data:
+        print(
+            "  ! user accounts and passwords will be lost; demo users are recreated on next start"
+        )
+    if args.models:
+        print("  ! models will be downloaded again (about 6 GB) on the next pull-model / ingest")
+    if args.all:
+        print("  ! .env (your settings and JWT secret) will be deleted")
+
+    if args.dry_run:
+        print("\n--dry-run: nothing was changed")
+        return
+    if not args.yes:
+        answer = input("\nContinue? [y/N] ").strip().lower()
+        if answer not in {"y", "yes"}:
+            print("cancelled")
+            return
+
+    if use_docker:
+        down_cmd = compose_cmd() + ["down", "--remove-orphans"]
+        if args.images:
+            down_cmd += ["--rmi", "local"]
+        run(down_cmd)
+        for v in volumes:
+            name = f"{project}_{v}"
+            exists = (
+                subprocess.run(
+                    ["docker", "volume", "inspect", name], capture_output=True
+                ).returncode
+                == 0
+            )
+            if exists:
+                run(["docker", "volume", "rm", name])
+    for p in local:
+        remove_path(p)
+        print(f"deleted {p.relative_to(ROOT)}")
+    print("clean-up finished")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -213,6 +343,33 @@ def main() -> None:
     sub.add_parser("eval", help="run the evaluation set").set_defaults(func=evaluate)
     sub.add_parser("logs", help="follow API logs").set_defaults(func=logs)
     sub.add_parser("status", help="health check and URLs").set_defaults(func=status)
+    p = sub.add_parser(
+        "clean",
+        help="remove containers and generated files; flags remove more",
+        description=(
+            "Default: stop and remove containers, delete the generated index, reports and caches."
+            " Documents in data/corpus are never touched."
+        ),
+    )
+    p.add_argument(
+        "--data",
+        action="store_true",
+        help="also delete the index, Qdrant and user-account volumes and data/users.db",
+    )
+    p.add_argument(
+        "--models",
+        action="store_true",
+        help="also delete downloaded LLM and embedding models (about 6 GB)",
+    )
+    p.add_argument("--images", action="store_true", help="also remove the built API image")
+    p.add_argument(
+        "--all",
+        action="store_true",
+        help="everything above, plus .env and .venv: back to a fresh checkout",
+    )
+    p.add_argument("--dry-run", action="store_true", help="show what would be removed")
+    p.add_argument("-y", "--yes", action="store_true", help="don't ask for confirmation")
+    p.set_defaults(func=clean)
     args = parser.parse_args()
     args.func(args)
 
