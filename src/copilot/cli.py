@@ -1,4 +1,4 @@
-"""Command line: ``copilot ingest | ask | token | eval | serve``."""
+"""Command line: ``copilot ingest | add-doc | ask | token | eval | users | serve``."""
 
 from __future__ import annotations
 
@@ -16,6 +16,50 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
     from copilot.service import ingest
 
     print(json.dumps(ingest(get_settings()), indent=2))
+
+
+def _choose(prompt: str, options: list[str]) -> str:
+    """Ask on the terminal until one of ``options`` (or its number) is given."""
+    if not sys.stdin.isatty():
+        sys.exit(f"missing {prompt.lower()}; pass it as an option ({', '.join(options)})")
+    print(f"{prompt}:")
+    for i, opt in enumerate(options, start=1):
+        print(f"  {i}. {opt}")
+    while True:
+        answer = input("> ").strip().lower()
+        if answer.isdigit() and 1 <= int(answer) <= len(options):
+            return options[int(answer) - 1]
+        if answer in options:
+            return answer
+        print(f"Please type a number from 1 to {len(options)}.")
+
+
+def _cmd_add_doc(args: argparse.Namespace) -> None:
+    from copilot.ingest.convert import import_document
+
+    corpus = Path(args.corpus_dir) if args.corpus_dir else get_settings().corpus_dir
+    tenants = sorted(p.name for p in corpus.iterdir() if p.is_dir()) if corpus.is_dir() else []
+    tenant = args.tenant or _choose("Tenant", tenants or ["policy", "engineering"])
+    role = args.min_role or _choose("Minimum role", [r.label for r in Role])
+    if tenants and tenant not in tenants:
+        print(f"note: {tenant!r} is a new tenant; give it to users with 'copilot users add'")
+    try:
+        out = import_document(
+            Path(args.file),
+            corpus,
+            tenant,
+            role,
+            title=args.title,
+            doc_id=args.doc_id,
+            source_label=args.source,
+            overwrite=args.force,
+        )
+    except (ValueError, FileExistsError, FileNotFoundError, RuntimeError) as exc:
+        sys.exit(f"error: {exc}")
+    lines = out.read_text(encoding="utf-8").splitlines()
+    sections = sum(1 for line in lines if line.startswith(("## ", "### ", "#### ")))
+    print(f"wrote {out} ({role}, tenant {tenant}, {sections} sections)")
+    print("Review it, then re-index so the copilot can use it.")
 
 
 def _cmd_ask(args: argparse.Namespace) -> None:
@@ -149,6 +193,19 @@ def main(argv: list[str] | None = None) -> None:
 
     p = sub.add_parser("ingest", help="build the index from the corpus directory")
     p.set_defaults(func=_cmd_ingest)
+
+    p = sub.add_parser("add-doc", help="convert a PDF or DOCX into a tagged Markdown document")
+    p.add_argument("file", help="the .pdf or .docx to import")
+    p.add_argument("--tenant", help="corpus folder, e.g. policy or engineering (asked if omitted)")
+    p.add_argument(
+        "--min-role", choices=[r.label for r in Role], help="lowest role that may see it"
+    )
+    p.add_argument("--title", help="default: the file's own title or its name")
+    p.add_argument("--doc-id", help="default: the file name")
+    p.add_argument("--source", help="where it came from (default: the file name)")
+    p.add_argument("--corpus-dir", help="default: COPILOT_CORPUS_DIR or data/corpus")
+    p.add_argument("--force", action="store_true", help="replace an existing document")
+    p.set_defaults(func=_cmd_add_doc)
 
     p = sub.add_parser("ask", help="ask a question as a given role")
     p.add_argument("question")

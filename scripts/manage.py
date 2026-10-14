@@ -7,6 +7,7 @@ Docker. It replaces the Makefile targets, which need ``make`` and a POSIX shell.
     python scripts/manage.py setup        create .env with a random JWT secret
     python scripts/manage.py up           build and start everything
     python scripts/manage.py pull-model   download the LLM into Ollama
+    python scripts/manage.py add-doc F    convert a PDF/DOCX into a tagged document in data/corpus
     python scripts/manage.py ingest       index the documents
     python scripts/manage.py status       health check and the URLs to open
     python scripts/manage.py logs         follow the API logs
@@ -168,6 +169,60 @@ def pull_model(_: argparse.Namespace) -> None:
     docker_check()
     model = read_env().get("COPILOT_OLLAMA_MODEL", DEFAULT_MODEL)
     run(compose_cmd() + ["exec", "ollama", "ollama", "pull", model])
+
+
+ROLES = ["employee", "manager", "admin"]
+
+
+def choose(prompt: str, options: list[str]) -> str:
+    """Ask on the terminal until one of ``options`` (or its number) is given."""
+    if not sys.stdin.isatty():
+        fail(f"missing {prompt.lower()}; pass it as an option ({', '.join(options)})")
+    print(f"{prompt}:")
+    for i, opt in enumerate(options, start=1):
+        print(f"  {i}. {opt}")
+    while True:
+        answer = input("> ").strip().lower()
+        if answer.isdigit() and 1 <= int(answer) <= len(options):
+            return options[int(answer) - 1]
+        if answer in options:
+            return answer
+        print(f"Please type a number from 1 to {len(options)}.")
+
+
+def add_doc(args: argparse.Namespace) -> None:
+    source = Path(args.file).expanduser().resolve()
+    if not source.is_file():
+        fail(f"no such file: {args.file}")
+    if source.suffix.lower() not in {".pdf", ".docx"}:
+        fail(f"{source.name} is not a .pdf or .docx file")
+    corpus = ROOT / "data" / "corpus"
+    tenants = sorted(p.name for p in corpus.iterdir() if p.is_dir())
+    tenant = args.tenant or choose("Tenant", tenants)
+    role = args.min_role or choose("Minimum role (who may see it)", ROLES)
+    docker_check()
+    # The corpus is read-only inside the API container, so mount it writable at another path for
+    # this one run, along with the folder holding the file. --build picks up new dependencies.
+    cmd = compose_cmd() + ["run", "--rm", "--build", "--no-deps"]
+    if hasattr(os, "getuid"):  # Linux/macOS: create the file as you, not as root
+        cmd += ["--user", f"{os.getuid()}:{os.getgid()}"]
+    cmd += [
+        "--volume", f"{source.parent}:/input:ro",
+        "--volume", f"{corpus}:/corpus",
+        "api", "copilot", "add-doc", f"/input/{source.name}",
+        "--corpus-dir", "/corpus", "--tenant", tenant, "--min-role", role,
+    ]  # fmt: skip
+    for flag in ("title", "doc_id", "source"):
+        value = getattr(args, flag)
+        if value:
+            cmd += [f"--{flag.replace('_', '-')}", value]
+    if args.force:
+        cmd.append("--force")
+    run(cmd)
+    if args.ingest:
+        ingest(args)
+    else:
+        print("Next: 'python scripts/manage.py ingest' to index it")
 
 
 def ingest(_: argparse.Namespace) -> None:
@@ -339,6 +394,16 @@ def main() -> None:
     p.set_defaults(func=up)
     sub.add_parser("down", help="stop all services").set_defaults(func=down)
     sub.add_parser("pull-model", help="download the LLM").set_defaults(func=pull_model)
+    p = sub.add_parser("add-doc", help="convert a PDF or DOCX into a document in data/corpus")
+    p.add_argument("file", help="the .pdf or .docx to import")
+    p.add_argument("--tenant", help="corpus folder, e.g. policy or engineering (asked if omitted)")
+    p.add_argument("--min-role", choices=ROLES, help="who may see it (asked if omitted)")
+    p.add_argument("--title", help="default: the file's own title or its name")
+    p.add_argument("--doc-id", help="default: the file name")
+    p.add_argument("--source", help="where it came from (default: the file name)")
+    p.add_argument("--force", action="store_true", help="replace an existing document")
+    p.add_argument("--ingest", action="store_true", help="re-index straight away")
+    p.set_defaults(func=add_doc)
     sub.add_parser("ingest", help="index the documents").set_defaults(func=ingest)
     sub.add_parser("eval", help="run the evaluation set").set_defaults(func=evaluate)
     sub.add_parser("logs", help="follow API logs").set_defaults(func=logs)
