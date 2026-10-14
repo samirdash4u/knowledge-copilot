@@ -1,14 +1,18 @@
 """Tenants are the top-level folders of the corpus directory.
 
-A tenant can carry a display name in ``<corpus>/<tenant>/tenant.yaml`` (``label: Legal``); the
-web UI shows it in the workspace picker. Documents are isolated per tenant, and a user sees only
-the tenants listed on their account.
+A tenant can carry settings in ``<corpus>/<tenant>/tenant.yaml``::
+
+    label: Legal              # shown in the web UI's workspace picker
+    roles: [admin, manager]   # every user with one of these roles may use the tenant
+
+Documents are isolated per tenant. A user may use the tenants listed on their account plus any
+tenant whose ``roles`` include their role, so a manager created later gets access too.
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -18,11 +22,15 @@ TENANT_FILE = "tenant.yaml"
 BUILTIN_LABELS = {"policy": "Company policy", "engineering": "Engineering docs"}
 
 
+ROLE_NAMES = ("employee", "manager", "admin")
+
+
 @dataclass
 class Tenant:
     name: str
     label: str
     documents: int
+    roles: list[str] = field(default_factory=list)
 
 
 def check_name(name: str) -> str:
@@ -33,16 +41,20 @@ def check_name(name: str) -> str:
     return name
 
 
-def _label(folder: Path) -> str:
+def _read_meta(folder: Path) -> tuple[str, list[str]]:
+    label = BUILTIN_LABELS.get(folder.name, folder.name.replace("-", " ").replace("_", " ").title())
+    roles: list[str] = []
     meta_file = folder / TENANT_FILE
     if meta_file.is_file():
         meta = yaml.safe_load(meta_file.read_text(encoding="utf-8")) or {}
-        if isinstance(meta, dict) and meta.get("label"):
-            return str(meta["label"])
-    return BUILTIN_LABELS.get(folder.name, folder.name.replace("-", " ").replace("_", " ").title())
+        if isinstance(meta, dict):
+            label = str(meta.get("label") or label)
+            raw = meta.get("roles") or []
+            roles = [r for r in ([raw] if isinstance(raw, str) else raw) if r in ROLE_NAMES]
+    return label, roles
 
 
-def list_tenants(corpus_dir: Path) -> list[Tenant]:
+def list_tenants(corpus_dir: Path, count_documents: bool = True) -> list[Tenant]:
     from copilot.ingest.loaders import SUPPORTED
 
     if not corpus_dir.is_dir():
@@ -57,26 +69,67 @@ def list_tenants(corpus_dir: Path) -> list[Tenant]:
     for folder in folders:
         if not TENANT_NAME.fullmatch(folder.name):
             continue
-        docs = sum(1 for f in folder.rglob("*") if f.is_file() and f.suffix.lower() in SUPPORTED)
-        tenants.append(Tenant(folder.name, _label(folder), docs))
+        docs = (
+            sum(1 for f in folder.rglob("*") if f.is_file() and f.suffix.lower() in SUPPORTED)
+            if count_documents
+            else 0
+        )
+        label, roles = _read_meta(folder)
+        tenants.append(Tenant(folder.name, label, docs, roles))
     return tenants
 
 
+def check_roles(roles: list[str]) -> list[str]:
+    bad = [r for r in roles if r not in ROLE_NAMES]
+    if bad:
+        raise ValueError(f"unknown role: {', '.join(bad)} (use {', '.join(ROLE_NAMES)})")
+    return list(dict.fromkeys(roles))
+
+
+def write_meta(folder: Path, label: str, roles: list[str]) -> None:
+    meta: dict = {"label": label}
+    if roles:
+        meta["roles"] = roles
+    (folder / TENANT_FILE).write_text(
+        yaml.safe_dump(meta, allow_unicode=True, sort_keys=False, default_flow_style=None),
+        encoding="utf-8",
+    )
+
+
 def create_tenant(
-    corpus_dir: Path, name: str, label: str | None = None, exist_ok: bool = False
+    corpus_dir: Path,
+    name: str,
+    label: str | None = None,
+    roles: list[str] | None = None,
+    exist_ok: bool = False,
 ) -> Tenant:
     """Create ``<corpus>/<name>/`` with its ``tenant.yaml``.
 
-    An existing tenant is an error, unless ``exist_ok``: then it is returned unchanged.
+    An existing tenant is an error, unless ``exist_ok``: then the given ``roles`` are added to it.
     """
     folder = corpus_dir / check_name(name)
+    roles = check_roles(roles or [])
     if folder.exists():
-        if exist_ok and folder.is_dir():
-            return next(t for t in list_tenants(corpus_dir) if t.name == name)
-        raise FileExistsError(f"tenant {name!r} already exists ({folder})")
+        if not (exist_ok and folder.is_dir()):
+            raise FileExistsError(f"tenant {name!r} already exists ({folder})")
+        tenant = next(t for t in list_tenants(corpus_dir) if t.name == name)
+        if roles:
+            tenant.roles = check_roles(tenant.roles + roles)
+            write_meta(folder, tenant.label, tenant.roles)
+        return tenant
     folder.mkdir(parents=True)
     label = (label or "").strip() or name.replace("-", " ").replace("_", " ").title()
-    (folder / TENANT_FILE).write_text(
-        yaml.safe_dump({"label": label}, allow_unicode=True), encoding="utf-8"
-    )
-    return Tenant(name, label, 0)
+    write_meta(folder, label, roles)
+    return Tenant(name, label, 0, roles)
+
+
+def tenants_for(role: str, own: list[str], tenants: list[Tenant]) -> list[str]:
+    """A user's tenants: those on their account, then those open to their role."""
+    by_role = [t.name for t in tenants if role in t.roles]
+    return list(dict.fromkeys(own + by_role))
+
+
+def split_grant(items: list[str]) -> tuple[list[str], list[str]]:
+    """Split a ``--grant`` list into (roles, usernames). A role name always means the role."""
+    items = [i.strip().lower() for i in items if i.strip()]
+    return [i for i in items if i in ROLE_NAMES], [i for i in items if i not in ROLE_NAMES]

@@ -4,7 +4,7 @@ No ``from __future__ import annotations`` here: FastAPI resolves dependency anno
 """
 
 import logging
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -18,7 +18,7 @@ from copilot.auth import AuthError, decode_token, issue_token
 from copilot.config import Settings, get_settings
 from copilot.models import Principal
 from copilot.service import CopilotService
-from copilot.tenants import list_tenants
+from copilot.tenants import list_tenants, tenants_for
 from copilot.users import LoginThrottle, PasswordPolicyError, User, UserStore
 
 log = logging.getLogger(__name__)
@@ -120,6 +120,14 @@ def create_app(
             request.app.state.service = CopilotService.from_settings(settings)
         return request.app.state.service
 
+    def with_role_tenants(user: User | None) -> User | None:
+        """Add the tenants opened to the user's role (tenant.yaml ``roles``) to their own."""
+        if user is None:
+            return None
+        known = list_tenants(settings.corpus_dir, count_documents=False)
+        tenants = tenants_for(user.role.label, user.tenants, known)
+        return replace(user, tenants=tenants)
+
     def get_caller(
         creds: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
     ) -> Caller:
@@ -133,7 +141,7 @@ def create_app(
             return Caller(principal, None)
         # Tokens from a login are re-checked against the database, so a password change,
         # a role change or a removed tenant takes effect immediately.
-        user = users.get(principal.user_id)
+        user = with_role_tenants(users.get(principal.user_id))
         if (
             user is None
             or claims.get("ver") != user.token_version
@@ -161,7 +169,8 @@ def create_app(
     @app.get("/tenants")
     def tenants() -> list[dict]:
         """Workspace names and labels for the sign-in picker. No documents or users are listed."""
-        return [{"name": t.name, "label": t.label} for t in list_tenants(settings.corpus_dir)]
+        found = list_tenants(settings.corpus_dir, count_documents=False)
+        return [{"name": t.name, "label": t.label} for t in found]
 
     # ---------- auth ----------
 
@@ -170,7 +179,7 @@ def create_app(
         username = body.username.strip().lower()
         if throttle.locked(username):
             raise HTTPException(429, "too many failed attempts, try again later")
-        user = users.authenticate(username, body.password)
+        user = with_role_tenants(users.authenticate(username, body.password))
         if user is None:
             throttle.fail(username)
             raise HTTPException(401, "invalid username or password")
@@ -195,7 +204,7 @@ def create_app(
         except PasswordPolicyError as exc:
             raise HTTPException(422, str(exc)) from exc
         # Older tokens are now invalid; hand back a fresh one.
-        return _session(settings, user, caller.principal.tenant)
+        return _session(settings, with_role_tenants(user), caller.principal.tenant)
 
     @app.post("/auth/switch-tenant")
     def switch_tenant(

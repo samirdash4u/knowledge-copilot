@@ -117,9 +117,14 @@ def _cmd_users_add(args: argparse.Namespace) -> None:
 
 
 def _cmd_users_list(args: argparse.Namespace) -> None:
+    from copilot.tenants import list_tenants
+
+    tenants = list_tenants(get_settings().corpus_dir)
     for u in _users().list():
         flag = "  [must change password]" if u.must_change else ""
-        print(f"{u.username:<20} {u.role.label:<9} {','.join(u.tenants)}{flag}")
+        via_role = [t.name for t in tenants if u.role.label in t.roles and t.name not in u.tenants]
+        extra = f" (+{','.join(via_role)} by role)" if via_role else ""
+        print(f"{u.username:<20} {u.role.label:<9} {','.join(u.tenants)}{extra}{flag}")
 
 
 def _cmd_users_reset(args: argparse.Namespace) -> None:
@@ -152,6 +157,11 @@ def _cmd_users_revoke(args: argparse.Namespace) -> None:
     except ValueError:
         sys.exit("error: a user needs at least one tenant; grant another before revoking this one")
     print(f"{user.username} now has: {', '.join(user.tenants)}")
+    from copilot.tenants import list_tenants
+
+    for t in list_tenants(get_settings().corpus_dir):
+        if t.name in args.tenants and user.role.label in t.roles:
+            print(f"  note: {t.name} is open to every {user.role.label}, so they can still use it")
 
 
 def _corpus(args: argparse.Namespace) -> Path:
@@ -163,27 +173,32 @@ def _cmd_tenants_list(args: argparse.Namespace) -> None:
 
     users = _users().list()
     for t in list_tenants(_corpus(args)):
-        names = ", ".join(u.username for u in users if t.name in u.tenants) or "-"
-        print(f"{t.name:<16} {t.label:<24} {t.documents:>3} docs   users: {names}")
+        names = [u.username for u in users if t.name in u.tenants or u.role.label in t.roles]
+        roles = f"   roles: {', '.join(t.roles)}" if t.roles else ""
+        print(
+            f"{t.name:<16} {t.label:<24} {t.documents:>3} docs"
+            f"   users: {', '.join(names) or '-'}{roles}"
+        )
 
 
 def _cmd_tenants_add(args: argparse.Namespace) -> None:
-    from copilot.tenants import create_tenant
+    from copilot.tenants import create_tenant, split_grant
 
+    roles, names = split_grant((args.grant or "").split(","))
     try:
-        tenant = create_tenant(_corpus(args), args.name, args.label, exist_ok=args.exist_ok)
+        tenant = create_tenant(_corpus(args), args.name, args.label, roles, exist_ok=args.exist_ok)
     except (ValueError, FileExistsError) as exc:
         sys.exit(f"error: {exc}")
     print(f"tenant {tenant.name} ({tenant.label}) is ready")
+    if tenant.roles:
+        print(f"  open to every {' and '.join(tenant.roles)}, including users added later")
     store = _users()
     if args.grant_all:
-        grantees = [u.username for u in store.list()]
-    else:
-        grantees = [u.strip().lower() for u in (args.grant or "").split(",") if u.strip()]
-    for name in grantees:
+        names = [u.username for u in store.list()]
+    for name in names:
         user = store.get(name)
         if user is None:
-            print(f"  ! no such user: {name}")
+            print(f"  ! no such user or role: {name}")
             continue
         store.set_tenants(user.username, user.tenants + [tenant.name])
         print(f"  gave {user.username} access")
@@ -325,7 +340,11 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("name", help="folder name, e.g. legal")
     p.add_argument("--label", help="name shown in the web UI, e.g. 'Legal'")
     g = p.add_mutually_exclusive_group()
-    g.add_argument("--grant", help="comma-separated users to give access, e.g. alice,bob")
+    g.add_argument(
+        "--grant",
+        help="comma-separated roles and/or users, e.g. admin,manager or alice,bob."
+        " A role covers users added later too",
+    )
     g.add_argument("--grant-all", action="store_true", help="give every existing user access")
     p.add_argument("--corpus-dir", help="default: COPILOT_CORPUS_DIR or data/corpus")
     p.add_argument("--exist-ok", action="store_true", help="don't fail if it exists; just grant")
