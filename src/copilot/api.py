@@ -160,7 +160,8 @@ def create_app(
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
-        return FileResponse(WEB_DIR / "index.html")
+        # Always revalidate, so a browser picks up a new version of the page after an upgrade.
+        return FileResponse(WEB_DIR / "index.html", headers={"Cache-Control": "no-cache"})
 
     @app.get("/health")
     def health() -> dict:

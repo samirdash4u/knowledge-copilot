@@ -189,6 +189,7 @@ tenant, delete its folder, revoke it from its users and re-index.
 | Symptom | Cause |
 | --- | --- |
 | Answers never mention the new document | ingest wasn't re-run, or the file extension isn't supported |
+| The sign-in page still shows only two workspaces | the API container is running code from before the upgrade: run `python scripts/manage.py up`, then reload the page with Ctrl+F5 |
 | A new workspace isn't in the picker for a user | grant it with `users grant <user> <tenant>` |
 | Only admins can see it | `min_role` is missing or the front matter isn't the first thing in the file |
 | `duplicate doc_id` error | two files in the same tenant share a `doc_id` (or file name) |
