@@ -17,6 +17,7 @@ from copilot import suggestions as suggest
 from copilot.acl import AccessViolation
 from copilot.auth import AuthError, decode_token, issue_token
 from copilot.config import Settings, get_settings
+from copilot.generation.llm import LLMUnavailable
 from copilot.models import Principal
 from copilot.service import CopilotService
 from copilot.tenants import list_tenants, read_meta, tenants_for
@@ -252,6 +253,8 @@ def create_app(
         except AccessViolation as exc:
             # Fail closed: never return partial results after an ACL check fails.
             raise HTTPException(500, "internal access check failed") from exc
+        except LLMUnavailable as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
         return asdict(ans)
 
     @app.get("/suggestions")

@@ -189,6 +189,7 @@ you're most likely to change:
 | `COPILOT_GPU` | `true` to run the LLM on the NVIDIA GPU (path A). |
 | `COPILOT_DEMO_PASSWORD` | Initial password of the demo users alice, bob and carol. After a change, run `up` again; demo users who already chose their own password keep it. |
 | `COPILOT_OLLAMA_MODEL` | The LLM. The default `qwen2.5:7b-instruct-q4_K_M` fits an 8 GB GPU. |
+| `COPILOT_LLM_TIMEOUT_S` | Seconds to wait for an answer, `300` by default. Raise it if the model runs on the CPU. |
 
 To find this PC's IP address, run `ipconfig` and look for **IPv4 Address** under your Wi-Fi or
 Ethernet adapter.
@@ -421,6 +422,8 @@ Temporary files** removes them.
 
 | Problem | Fix |
 |---|---|
+| *The language model took longer than ... seconds* / `httpx.ReadTimeout` | The model is loading, or running partly on the CPU. Run `ollama ps`: **100% GPU** is good; anything with CPU is slow. Close other GPU-heavy apps, keep `COPILOT_LLM_NUM_CTX` at 4096 or lower, and raise `COPILOT_LLM_TIMEOUT_S` (for example `600`) in `.env`, then restart. |
+| *The language model is not reachable* | Start Ollama and check `ollama list` shows the model from `COPILOT_OLLAMA_MODEL`. |
 | *invalid username or password* for a demo user | The user already chose a password, or `up` wasn't run again after `COPILOT_DEMO_PASSWORD` changed. Reset it with `copilot users reset-password alice` (in Docker: `docker compose exec api copilot users reset-password alice`). Five wrong attempts lock the account for five minutes. |
 | *no space left on device* / `C:` is full | Follow 8.1 to free space on `C:`, and 1.1 to keep new downloads on another drive. |
 | `make` is not recognized | Windows has no `make`. Use `python scripts\manage.py <command>` instead. |
