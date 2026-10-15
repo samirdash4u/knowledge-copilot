@@ -11,11 +11,14 @@ tenant whose ``roles`` include their role, so a manager created later gets acces
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
+
+log = logging.getLogger(__name__)
 
 TENANT_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,39}")
 TENANT_FILE = "tenant.yaml"
@@ -46,7 +49,12 @@ def read_meta(folder: Path) -> dict:
     meta_file = folder / TENANT_FILE
     if not meta_file.is_file():
         return {}
-    meta = yaml.safe_load(meta_file.read_text(encoding="utf-8")) or {}
+    try:
+        meta = yaml.safe_load(meta_file.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        # A typo in one tenant's file must not break sign-in for every tenant.
+        log.warning("ignoring %s: %s", meta_file, exc)
+        return {}
     return meta if isinstance(meta, dict) else {}
 
 

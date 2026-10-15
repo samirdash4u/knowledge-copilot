@@ -209,6 +209,7 @@ tenant, delete its folder, revoke it from its users and re-index.
 | Answers never mention the new document | ingest wasn't re-run, or the file extension isn't supported |
 | The sign-in page still shows only two workspaces | the API container is running code from before the upgrade: run `python scripts/manage.py up`, then reload the page with Ctrl+F5 |
 | A new workspace isn't in the picker for a user | grant it with `users grant <user> <tenant>` |
+| A workspace lost its name, suggestions or role access | its `tenant.yaml` has a YAML error and is being ignored; the API log names it. Put questions in quotes |
 | Only admins can see it | `min_role` is missing or the front matter isn't the first thing in the file |
 | `duplicate doc_id` error | two files in the same tenant share a `doc_id` (or file name) |
 | `unknown role` error | `min_role` or an `acl:` marker has a typo |
