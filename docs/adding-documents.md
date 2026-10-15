@@ -168,22 +168,24 @@ Roles and `min_role` work together: `--grant admin,manager` decides who can open
 workspace, and each document's `min_role` still decides what they see inside it.
 
 **Suggested questions.** After someone picks a workspace, the chat shows a few questions they
-can click. A new tenant gets them automatically after `ingest`: they are made from the titles and
-section headings of the documents that user's role can see, so a restricted section's heading is
-never suggested to a lower role. To write your own, add them to the tenant's `tenant.yaml`, either
-one list for everyone or one per role (a role without a list gets the automatic ones):
+can click. `add-doc` writes them for you: for each document it imports, it asks the local LLM for
+a likely question per section and adds them to the top of the tenant's `tenant.yaml`, per role.
+A question about a manager-only section is only added for managers and admins. If Ollama isn't
+running, it uses the section headings instead (`What does the Brand Guidelines say about "Logo
+usage"?`). Each role keeps the six newest; pass `--no-suggest` to skip this for a document.
 
 ```yaml
 label: "Marketing"
 suggestions:
   employee:
-    - "Who approves posts on company social media accounts?"
+    - "How much space should I leave around the logo?"
   manager:
-    - "Which campaigns need CMO sign-off?"
+    - "Who signs off on a large campaign?"
 ```
 
-Changes show up the next time the workspace is opened; no restart or re-index needed.
-`data/corpus/policy/tenant.yaml` holds the examples for the Company policy workspace.
+You can edit or reorder them in `tenant.yaml`; changes show up the next time the workspace is
+opened, with no restart or re-index. A tenant with no list at all gets questions made from its
+section headings. `data/corpus/policy/tenant.yaml` holds the examples for Company policy.
 
 Managing access later:
 

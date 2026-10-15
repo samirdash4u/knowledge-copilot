@@ -215,6 +215,8 @@ def add_doc(args: argparse.Namespace) -> None:
             cmd += [f"--{flag.replace('_', '-')}", value]
     if args.force:
         cmd.append("--force")
+    if args.no_suggest:
+        cmd.append("--no-suggest")
     run(cmd)
     if args.ingest:
         ingest(args)
@@ -457,6 +459,9 @@ def main() -> None:
     p.add_argument("--source", help="where it came from (default: the file name)")
     p.add_argument("--force", action="store_true", help="replace an existing document")
     p.add_argument("--ingest", action="store_true", help="re-index straight away")
+    p.add_argument(
+        "--no-suggest", action="store_true", help="don't add suggested questions to tenant.yaml"
+    )
     p.set_defaults(func=add_doc)
     p = sub.add_parser("add-tenant", help="create a tenant and optionally give users access")
     p.add_argument("name", help="folder name, e.g. legal")
