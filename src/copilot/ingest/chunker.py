@@ -26,6 +26,13 @@ def _pieces(text: str, size: int) -> list[str]:
             else:
                 words, cur = sent.split(), ""
                 for w in words:
+                    # Text extracted from some PDFs has no spaces; cut such runs to size.
+                    while len(w) > size:
+                        if cur:
+                            out.append(cur)
+                            cur = ""
+                        out.append(w[:size])
+                        w = w[size:]
                     if cur and len(cur) + 1 + len(w) > size:
                         out.append(cur)
                         cur = w
@@ -51,6 +58,8 @@ def split_text(text: str, size: int, overlap: int) -> list[str]:
                     break
                 carry.insert(0, p)
                 carry_len += len(p) + 2
+            if carry_len + len(piece) > size:
+                carry, carry_len = [], 0  # no room for overlap next to a full-size piece
             cur, cur_len = carry, carry_len
         cur.append(piece)
         cur_len += len(piece) + 2
