@@ -59,7 +59,32 @@ def _cmd_add_doc(args: argparse.Namespace) -> None:
     lines = out.read_text(encoding="utf-8").splitlines()
     sections = sum(1 for line in lines if line.startswith(("## ", "### ", "#### ")))
     print(f"wrote {out} ({role}, tenant {tenant}, {sections} sections)")
+    if not args.no_suggest:
+        _suggest_for(out, corpus / tenant, tenant)
     print("Review it, then re-index so the copilot can use it.")
+
+
+def _suggest_for(doc_path: Path, tenant_dir: Path, tenant: str) -> None:
+    """Write likely questions about the new document into the tenant's tenant.yaml."""
+    from copilot.ingest.loaders import load_markdown
+    from copilot.service import make_llm
+    from copilot.suggestions import add_to_tenant, document_questions
+
+    settings = get_settings()
+    llm = None if settings.llm == "echo" else make_llm(settings)
+    if llm is not None:
+        print("writing suggested questions with the LLM...")
+    by_role, used_llm = document_questions(load_markdown(doc_path, tenant), llm)
+    if not by_role:
+        return
+    if not add_to_tenant(tenant_dir, by_role):
+        print("  ! tenant.yaml has an error, so no suggested questions were added")
+        return
+    how = "written by the LLM" if used_llm else "made from the section headings"
+    print(f"added suggested questions to {tenant_dir / 'tenant.yaml'} ({how}):")
+    for r, questions in by_role.items():
+        for q in questions:
+            print(f"  {r:<9} {q}")
 
 
 def _cmd_ask(args: argparse.Namespace) -> None:
@@ -283,6 +308,9 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--source", help="where it came from (default: the file name)")
     p.add_argument("--corpus-dir", help="default: COPILOT_CORPUS_DIR or data/corpus")
     p.add_argument("--force", action="store_true", help="replace an existing document")
+    p.add_argument(
+        "--no-suggest", action="store_true", help="don't add suggested questions to tenant.yaml"
+    )
     p.set_defaults(func=_cmd_add_doc)
 
     p = sub.add_parser("ask", help="ask a question as a given role")

@@ -11,7 +11,7 @@ from copilot.generation.citations import check_citations
 from copilot.generation.llm import LLM, EchoLLM, OllamaLLM
 from copilot.generation.prompt import REFUSAL, build_messages
 from copilot.ingest.pipeline import run_ingest
-from copilot.models import Answer, Principal
+from copilot.models import Answer, Chunk, Principal
 from copilot.retrieval.bm25 import BM25Index
 from copilot.retrieval.embeddings import Embedder, HashEmbedder, SentenceTransformerEmbedder
 from copilot.retrieval.hybrid import HybridRetriever
@@ -70,8 +70,10 @@ class CopilotService:
         llm: LLM,
         cache: AnswerCache,
         corpus_version: str,
+        chunks: list[Chunk] | None = None,
     ) -> None:
         self.settings = settings
+        self.chunks = chunks or []  # every indexed chunk; filter with acl.visible before use
         self.retriever = retriever
         self.llm = llm
         self.cache = cache
@@ -95,7 +97,7 @@ class CopilotService:
             rrf_k=s.rrf_k,
         )
         version = manifest["corpus_version"]
-        return cls(s, retriever, make_llm(s), make_cache(s, version), version)
+        return cls(s, retriever, make_llm(s), make_cache(s, version), version, chunks)
 
     def answer(
         self, principal: Principal, question: str, mode: str | None = None, use_cache: bool = True

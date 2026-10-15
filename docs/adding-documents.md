@@ -167,6 +167,26 @@ python scripts/manage.py add-doc "Contracts.docx" --tenant legal --min-role empl
 Roles and `min_role` work together: `--grant admin,manager` decides who can open the Legal
 workspace, and each document's `min_role` still decides what they see inside it.
 
+**Suggested questions.** After someone picks a workspace, the chat shows a few questions they
+can click. `add-doc` writes them for you: for each document it imports, it asks the local LLM for
+a likely question per section and adds them to the top of the tenant's `tenant.yaml`, per role.
+A question about a manager-only section is only added for managers and admins. If Ollama isn't
+running, it uses the section headings instead (`What does the Brand Guidelines say about "Logo
+usage"?`). Each role keeps the six newest; pass `--no-suggest` to skip this for a document.
+
+```yaml
+label: "Marketing"
+suggestions:
+  employee:
+    - "How much space should I leave around the logo?"
+  manager:
+    - "Who signs off on a large campaign?"
+```
+
+You can edit or reorder them in `tenant.yaml`; changes show up the next time the workspace is
+opened, with no restart or re-index. A tenant with no list at all gets questions made from its
+section headings. `data/corpus/policy/tenant.yaml` holds the examples for Company policy.
+
 Managing access later:
 
 ```bash
@@ -191,6 +211,7 @@ tenant, delete its folder, revoke it from its users and re-index.
 | Answers never mention the new document | ingest wasn't re-run, or the file extension isn't supported |
 | The sign-in page still shows only two workspaces | the API container is running code from before the upgrade: run `python scripts/manage.py up`, then reload the page with Ctrl+F5 |
 | A new workspace isn't in the picker for a user | grant it with `users grant <user> <tenant>` |
+| A workspace lost its name, suggestions or role access | its `tenant.yaml` has a YAML error and is being ignored; the API log names it. Put questions in quotes |
 | Only admins can see it | `min_role` is missing or the front matter isn't the first thing in the file |
 | `duplicate doc_id` error | two files in the same tenant share a `doc_id` (or file name) |
 | `unknown role` error | `min_role` or an `acl:` marker has a typo |
