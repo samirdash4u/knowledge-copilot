@@ -21,6 +21,51 @@ need to reach it.
 Without a GPU the LLM runs on the CPU. That works, but an answer takes tens of seconds instead of a
 few.
 
+By default almost all of that disk space is used on `C:`. If `C:` is short on space, follow 1.1
+before installing anything. If you already ran the copilot and `C:` is full, see 8.1.
+
+### 1.1 Put everything on another drive (optional)
+
+These are the places that grow, how big they get, and the setting that moves each one. The
+examples use `D:\copilot`; any folder on any local drive works.
+
+| What | Default location | Size | Moved by |
+|---|---|---|---|
+| Docker images, containers and volumes (path A: the LLM, embedding models, index, users) | `%LOCALAPPDATA%\Docker\wsl` | 12–20 GB | Docker Desktop's disk image location (2.2, 2.3) |
+| Ollama models (path B) | `%USERPROFILE%\.ollama\models` | ~5 GB | `OLLAMA_MODELS` |
+| Embedding and reranker models (path B) | `%USERPROFILE%\.cache\huggingface` | ~1.5 GB | `HF_HOME` |
+| uv download cache (path B) | `%LOCALAPPDATA%\uv\cache` | 1–3 GB | `UV_CACHE_DIR` |
+| Python installs made by uv, if any | `%APPDATA%\uv\python` | ~100 MB each | `UV_PYTHON_INSTALL_DIR` |
+| pip download cache | `%LOCALAPPDATA%\pip\Cache` | up to a few GB | `PIP_CACHE_DIR` |
+| The project: code, `.venv` (path B), `data\index`, `data\users.db`, `reports` | wherever you clone it | 1–3 GB | the folder you clone into (step 3) |
+| WSL Linux distribution (Ubuntu) | `%LOCALAPPDATA%\Packages\...` | 1–2 GB+ | skip it with `--no-distribution` (2.1) |
+
+Docker Desktop, Ollama, Git and Python themselves are a few hundred MB each and can stay on `C:`.
+
+Set the cache and model locations once, in a normal (not Administrator) PowerShell. They are saved
+for your Windows user, so every later window and program picks them up:
+
+```powershell
+$base = "D:\copilot"
+New-Item -ItemType Directory -Force "$base\cache\uv", "$base\cache\pip", "$base\cache\huggingface",
+  "$base\uv-python", "$base\ollama\models", "$base\docker" | Out-Null
+[Environment]::SetEnvironmentVariable("UV_CACHE_DIR",          "$base\cache\uv",          "User")
+[Environment]::SetEnvironmentVariable("UV_PYTHON_INSTALL_DIR", "$base\uv-python",         "User")
+[Environment]::SetEnvironmentVariable("PIP_CACHE_DIR",         "$base\cache\pip",         "User")
+[Environment]::SetEnvironmentVariable("HF_HOME",               "$base\cache\huggingface", "User")
+[Environment]::SetEnvironmentVariable("OLLAMA_MODELS",         "$base\ollama\models",     "User")
+```
+
+Close and reopen PowerShell, then check: `$env:HF_HOME` should print `D:\copilot\cache\huggingface`.
+If Ollama is already running, quit it from the system tray (right-click → *Quit Ollama*) and start
+it again so it sees `OLLAMA_MODELS`.
+
+These are Windows environment variables, not `.env` settings: `.env` is only read by the copilot
+itself, while uv, pip, Hugging Face and Ollama read the Windows environment. Keep `UV_CACHE_DIR` on
+the same drive as the project so uv can hard-link files into `.venv` instead of copying them.
+
+Then follow the rest of the guide with the changes marked **Other drive** in 2.1, 2.2, 2.3 and 3.
+
 ## 2. Install the prerequisites
 
 Run these in **PowerShell as Administrator** (Start menu → type *PowerShell* → *Run as
@@ -36,6 +81,9 @@ wsl --update
 Restart Windows when asked. If `wsl --install` says virtualization is disabled, enable
 **Intel VT-x** or **AMD SVM** in your BIOS/UEFI settings and try again.
 
+**Other drive:** use `wsl --install --no-distribution` instead. Docker Desktop brings its own WSL
+distribution, so the Ubuntu one that `wsl --install` adds on `C:` isn't needed.
+
 ### 2.2 Install the tools
 
 Use `winget` (built into Windows 10/11), or download each installer from the linked site.
@@ -47,6 +95,19 @@ winget install -e --id Docker.DockerDesktop    # path A: https://www.docker.com/
 winget install -e --id Ollama.Ollama           # path B only: https://ollama.com/download/windows
 winget install -e --id astral-sh.uv            # path B only: https://docs.astral.sh/uv/
 ```
+
+**Other drive:** install Docker Desktop and Ollama from their downloaded installers instead of
+`winget`, so you can choose where their data goes. In PowerShell, in your Downloads folder:
+
+```powershell
+# Docker Desktop (path A): images, containers and volumes go to D:\copilot\docker
+Start-Process -Wait ".\Docker Desktop Installer.exe" -ArgumentList `
+  "install", "--accept-license", "--wsl-default-data-root=D:\copilot\docker"
+# Ollama (path B): the program goes to D:\copilot\ollama\app; models follow OLLAMA_MODELS from 1.1
+.\OllamaSetup.exe /DIR="D:\copilot\ollama\app"
+```
+
+If Docker Desktop is already installed, leave it and move its data in 2.3 instead.
 
 Close and reopen PowerShell afterwards so the new programs are on `PATH`. Then check them:
 
@@ -75,6 +136,13 @@ execution aliases**, turn off the two *python* aliases, and reopen PowerShell. Y
    processors=6
    ```
 
+4. **Other drive:** open **Settings → Resources → Advanced → Disk image location**, choose
+   `D:\copilot\docker`, and click **Apply & restart**. Docker Desktop moves its disk image there,
+   including any images and volumes already in it. Every container, image and volume of this
+   project (the LLM, the embedding models, the index and the user accounts) lives inside that disk
+   image, so nothing else is needed for path A. Skip this if you used `--wsl-default-data-root` in
+   2.2.
+
 ### 2.4 NVIDIA GPU (optional)
 
 1. Install the latest **NVIDIA Game Ready or Studio driver** from
@@ -92,10 +160,14 @@ execution aliases**, turn off the two *python* aliases, and reopen PowerShell. Y
 ## 3. Get the code
 
 ```powershell
-cd $HOME
+cd $HOME                    # Other drive: cd D:\copilot
 git clone https://github.com/samirdash4u/knowledge-copilot.git
 cd knowledge-copilot
 ```
+
+Everything the project writes itself stays in this folder: `.venv` (path B), the index in
+`data\index`, user accounts in `data\users.db` and eval reports in `reports`. To keep the index or
+the users database somewhere else, set `COPILOT_INDEX_DIR` or `COPILOT_USERS_DB` in `.env`.
 
 The repository's `.gitattributes` keeps Unix line endings, so the Linux containers and shell scripts
 work even if Git is set to convert line endings.
@@ -241,14 +313,116 @@ To uninstall completely, also:
 - remove the firewall rule from step 6;
 - path A: `docker image rm qdrant/qdrant:v1.12.4 redis:7.4-alpine ollama/ollama:0.5.7`;
 - path B: `ollama rm qwen2.5:7b-instruct-q4_K_M` and delete
-  `%USERPROFILE%\.cache\huggingface` (the embedding and reranker models);
+  `%USERPROFILE%\.cache\huggingface`, or the `HF_HOME` folder if you set one (the embedding and
+  reranker models);
 - delete the project folder.
+
+### 8.1 Free up space on C: after earlier runs
+
+Work through these in order and stop once you have enough room. Steps 1–3 only delete things that
+are downloaded again when needed.
+
+**1. See what is taking the space.** In PowerShell:
+
+```powershell
+$paths = "$env:LOCALAPPDATA\Docker\wsl", "$env:USERPROFILE\.ollama\models",
+  "$env:USERPROFILE\.cache\huggingface", "$env:LOCALAPPDATA\uv\cache", "$env:APPDATA\uv\python",
+  "$env:LOCALAPPDATA\pip\Cache", "$HOME\knowledge-copilot"
+foreach ($p in $paths) {
+  if (Test-Path $p) {
+    $gb = (Get-ChildItem $p -Recurse -Force -File -ErrorAction SilentlyContinue |
+           Measure-Object Length -Sum).Sum / 1GB
+    "{0,7:N1} GB  {1}" -f $gb, $p
+  }
+}
+```
+
+**2. Clear the download caches.** Both are safe to empty at any time:
+
+```powershell
+uv cache clean
+python -m pip cache purge
+```
+
+**3. Clear the project's generated files.** In the project folder (`--dry-run` lists what would go):
+
+```powershell
+python scripts\manage.py clean            # index, eval reports, tool caches; stops containers
+python scripts\manage.py clean --models   # also the downloaded models in Docker (~6 GB)
+```
+
+On path A these files live inside Docker's disk image, which does not shrink by itself. Follow
+step 6 afterwards to get the space back on `C:`.
+
+**4. Move the models (path B).** Set `HF_HOME` and `OLLAMA_MODELS` as in 1.1 and reopen
+PowerShell. Quit Ollama from the system tray, then move what was already downloaded:
+
+```powershell
+Move-Item "$env:USERPROFILE\.cache\huggingface\*" "$env:HF_HOME"
+Move-Item "$env:USERPROFILE\.ollama\models\*"     "$env:OLLAMA_MODELS"
+```
+
+Start Ollama again and check that `ollama list` still shows the model. If you'd rather download
+them again, delete the two old folders instead of moving them.
+
+**5. Move the project folder.** Stop the server first (`python scripts\manage.py down`, or Ctrl+C
+for `copilot serve`). Then:
+
+```powershell
+Move-Item "$HOME\knowledge-copilot" "D:\copilot\knowledge-copilot"
+cd D:\copilot\knowledge-copilot
+```
+
+A `.venv` doesn't work after it is moved: delete it (`Remove-Item -Recurse -Force .venv`) and create
+it again as in 5B.2. On path A keep the folder name `knowledge-copilot`; Docker names the volumes
+after it, so the index, users and models are found again after `python scripts\manage.py up`.
+
+**6. Shrink or move Docker's disk image (path A).** First remove what Docker no longer uses:
+
+```powershell
+docker system prune        # stopped containers, unused networks, dangling images, build cache
+docker builder prune -a    # all build cache; the next `up` rebuilds the image
+```
+
+Don't add `--volumes`: that also deletes the models and user accounts. Then choose one:
+
+- **Move it off C: (recommended).** Docker Desktop → **Settings → Resources → Advanced → Disk
+  image location** → `D:\copilot\docker` → **Apply & restart**. This frees all of it on `C:`.
+- **Keep it on C: but compact it.** The disk image keeps its largest size until compacted. Quit
+  Docker Desktop (tray icon → *Quit Docker Desktop*), then in **PowerShell as Administrator**:
+
+  ```powershell
+  wsl --shutdown
+  Get-ChildItem "$env:LOCALAPPDATA\Docker\wsl" -Recurse -Filter *.vhdx   # note the full path
+  diskpart
+  ```
+
+  At the `DISKPART>` prompt, using the path from above (usually `...\wsl\disk\docker_data.vhdx`,
+  or `...\wsl\data\ext4.vhdx` on older Docker Desktop versions):
+
+  ```text
+  select vdisk file="C:\Users\<you>\AppData\Local\Docker\wsl\disk\docker_data.vhdx"
+  attach vdisk readonly
+  compact vdisk
+  detach vdisk
+  exit
+  ```
+
+**7. Remove or move an unused Ubuntu.** `wsl --list --verbose` lists the WSL distributions. If
+`Ubuntu` is there and you don't use it, `wsl --unregister Ubuntu` deletes it and every file in it.
+To keep it but move it, run `wsl --manage Ubuntu --move D:\copilot\wsl\Ubuntu` (needs a recent WSL;
+run `wsl --update` first). Leave `docker-desktop` and `docker-desktop-data` alone; step 6 handles
+them.
+
+**8. Windows leftovers.** Installers leave files in `%TEMP%`. **Settings → System → Storage →
+Temporary files** removes them.
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
 | *invalid username or password* for a demo user | The user already chose a password, or `up` wasn't run again after `COPILOT_DEMO_PASSWORD` changed. Reset it with `copilot users reset-password alice` (in Docker: `docker compose exec api copilot users reset-password alice`). Five wrong attempts lock the account for five minutes. |
+| *no space left on device* / `C:` is full | Follow 8.1 to free space on `C:`, and 1.1 to keep new downloads on another drive. |
 | `make` is not recognized | Windows has no `make`. Use `python scripts\manage.py <command>` instead. |
 | `docker` is not recognized | Reopen PowerShell after installing Docker Desktop. Check that `C:\Program Files\Docker\Docker\resources\bin` is on `PATH`. |
 | *Docker daemon is not reachable* / `error during connect ... docker_engine` | Start Docker Desktop and wait for **Engine running**. |
