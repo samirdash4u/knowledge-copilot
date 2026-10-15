@@ -1,0 +1,19 @@
+label: "Company policy"
+# Suggested questions under the chat box, per role. Some deliberately ask about
+# material above the role, to show the copilot refusing.
+suggestions:
+  employee:
+    - "How many days of paid annual leave do I get?"
+    - "How many days a week can I work from home?"
+    - "What is the meal allowance for international travel?"
+    - "What is the salary range for level L4?"
+  manager:
+    - "What is the salary range for level L4?"
+    - "Up to what amount can a manager approve an expense claim?"
+    - "How long does a performance improvement plan last?"
+    - "What is the cap on the executive bonus pool?"
+  admin:
+    - "What is the cap on the executive bonus pool?"
+    - "When can break-glass accounts be used?"
+    - "How soon must a data breach be reported to the regulator?"
+    - "How often are database root credentials rotated?"

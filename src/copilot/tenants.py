@@ -41,16 +41,21 @@ def check_name(name: str) -> str:
     return name
 
 
+def read_meta(folder: Path) -> dict:
+    """The raw contents of ``tenant.yaml``, or {} when it is missing or not a mapping."""
+    meta_file = folder / TENANT_FILE
+    if not meta_file.is_file():
+        return {}
+    meta = yaml.safe_load(meta_file.read_text(encoding="utf-8")) or {}
+    return meta if isinstance(meta, dict) else {}
+
+
 def _read_meta(folder: Path) -> tuple[str, list[str]]:
     label = BUILTIN_LABELS.get(folder.name, folder.name.replace("-", " ").replace("_", " ").title())
-    roles: list[str] = []
-    meta_file = folder / TENANT_FILE
-    if meta_file.is_file():
-        meta = yaml.safe_load(meta_file.read_text(encoding="utf-8")) or {}
-        if isinstance(meta, dict):
-            label = str(meta.get("label") or label)
-            raw = meta.get("roles") or []
-            roles = [r for r in ([raw] if isinstance(raw, str) else raw) if r in ROLE_NAMES]
+    meta = read_meta(folder)
+    label = str(meta.get("label") or label)
+    raw = meta.get("roles") or []
+    roles = [r for r in ([raw] if isinstance(raw, str) else raw) if r in ROLE_NAMES]
     return label, roles
 
 
@@ -87,9 +92,12 @@ def check_roles(roles: list[str]) -> list[str]:
 
 
 def write_meta(folder: Path, label: str, roles: list[str]) -> None:
-    meta: dict = {"label": label}
+    """Set the label and roles in ``tenant.yaml``, keeping any other keys (such as suggestions)."""
+    meta: dict = {**read_meta(folder), "label": label}
     if roles:
         meta["roles"] = roles
+    else:
+        meta.pop("roles", None)
     (folder / TENANT_FILE).write_text(
         yaml.safe_dump(meta, allow_unicode=True, sort_keys=False, default_flow_style=None),
         encoding="utf-8",

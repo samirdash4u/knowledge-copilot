@@ -167,6 +167,24 @@ python scripts/manage.py add-doc "Contracts.docx" --tenant legal --min-role empl
 Roles and `min_role` work together: `--grant admin,manager` decides who can open the Legal
 workspace, and each document's `min_role` still decides what they see inside it.
 
+**Suggested questions.** After someone picks a workspace, the chat shows a few questions they
+can click. A new tenant gets them automatically after `ingest`: they are made from the titles and
+section headings of the documents that user's role can see, so a restricted section's heading is
+never suggested to a lower role. To write your own, add them to the tenant's `tenant.yaml`, either
+one list for everyone or one per role (a role without a list gets the automatic ones):
+
+```yaml
+label: "Marketing"
+suggestions:
+  employee:
+    - "Who approves posts on company social media accounts?"
+  manager:
+    - "Which campaigns need CMO sign-off?"
+```
+
+Changes show up the next time the workspace is opened; no restart or re-index needed.
+`data/corpus/policy/tenant.yaml` holds the examples for the Company policy workspace.
+
 Managing access later:
 
 ```bash

@@ -184,3 +184,13 @@ def test_exist_ok_adds_roles(corpus):
     assert t.roles == ["admin", "manager"]
     with pytest.raises(ValueError, match="unknown role"):
         create_tenant(corpus, "hr", roles=["boss"])
+
+
+def test_adding_roles_keeps_suggestions(corpus):
+    from copilot.tenants import read_meta
+
+    create_tenant(corpus, "legal", "Legal")
+    (corpus / "legal" / "tenant.yaml").write_text("label: Legal\nsuggestions: [What is X?]\n")
+    create_tenant(corpus, "legal", roles=["manager"], exist_ok=True)
+    meta = read_meta(corpus / "legal")
+    assert meta["suggestions"] == ["What is X?"] and meta["roles"] == ["manager"]

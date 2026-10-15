@@ -1,0 +1,17 @@
+label: "Engineering docs"
+# Suggested questions under the chat box, per role. Some deliberately ask about
+# material above the role, to show the copilot refusing.
+suggestions:
+  employee:
+    - "How long does a production canary run?"
+    - "How many approvals does a pull request need?"
+    - "What happens when the API rate limit is exceeded?"
+    - "How much is the weekly on-call allowance?"
+  manager:
+    - "How much is the weekly on-call allowance?"
+    - "Who approves an emergency fix during a deploy freeze?"
+    - "How do I fail over the payments Postgres cluster?"
+  admin:
+    - "How do I fail over the payments Postgres cluster?"
+    - "How often are database root credentials rotated?"
+    - "How do I roll back a service?"
