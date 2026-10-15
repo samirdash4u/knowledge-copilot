@@ -6,19 +6,50 @@ stores them in the search index; at question time the copilot retrieves the chun
 allowed to see and the model answers from those, with citations. A new document is searchable as
 soon as it is ingested.
 
+## Docker or not: which commands to use
+
+Use the commands for the way you started the copilot. Each step below has both.
+
+| You started it with | Run commands as | Needs |
+| --- | --- | --- |
+| Docker (`python scripts/manage.py up`) | `python scripts/manage.py ...` | Docker Desktop running ("Engine running") |
+| No Docker (`copilot serve`) | `copilot ...` | the virtual environment active: `.venv\Scripts\Activate.ps1` on Windows, `source .venv/bin/activate` on Linux |
+
+Run both kinds from the repository folder. `manage.py` always goes through Docker, so without
+Docker it stops with *the Docker daemon is not reachable*; use the `copilot` commands instead.
+
+Both setups read documents and `tenant.yaml` files from the same `data/corpus` folder, but they
+keep user accounts apart: Docker in its `index` volume, the native install in `data/users.db`.
+Access granted to a user by name in one setup doesn't carry over to the other; access by role
+(`roles` in `tenant.yaml`) applies to both.
+
 ## Quick way: import a PDF or Word file
 
-`add-doc` converts a `.pdf` or `.docx` into a tagged Markdown file in `data/corpus/<tenant>/`:
+`add-doc` converts a `.pdf` or `.docx` into a tagged Markdown file in `data/corpus/<tenant>/`.
+
+**With Docker:**
 
 ```bash
 python scripts/manage.py add-doc "C:\Users\me\Downloads\Travel Policy.docx" --tenant policy --min-role employee --ingest
 ```
 
-Leave out `--tenant` or `--min-role` and it asks for them. `--ingest` re-indexes straight away;
-without it, review the new file and run `python scripts/manage.py ingest` yourself. Other options:
-`--title`, `--doc-id` (also the file name; defaults to the source file name), `--source` and
-`--force` to replace a document you imported before. For a native install, the same command is
-`copilot add-doc <file> ...`.
+`--ingest` re-indexes and restarts the API straight away. Without it, review the new file and run
+`python scripts/manage.py ingest` yourself.
+
+**Without Docker** (virtual environment active):
+
+```powershell
+copilot add-doc "C:\Users\me\Downloads\Travel Policy.docx" --tenant policy --min-role employee
+copilot ingest
+```
+
+Then stop `copilot serve` with Ctrl+C and start it again, so it loads the new index. Natively,
+`add-doc` has no `--ingest` option.
+
+In both, leave out `--tenant` or `--min-role` and it asks for them. Other options: `--title`,
+`--doc-id` (also the file name; defaults to the source file name), `--source`, `--force` to
+replace a document you imported before, and `--no-suggest` (see
+[Suggested questions](#suggested-questions)).
 
 How the conversion works:
 
@@ -34,7 +65,8 @@ The result is plain Markdown, so open it and check it before indexing: fix any h
 conversion missed, and add `<!-- acl: manager -->` under a heading to restrict that section (see
 below). The original file isn't copied into the corpus.
 
-The rest of this guide covers adding files by hand.
+The next three sections cover adding files by hand; they are the same with or without Docker
+until the re-index step.
 
 ## 1. Put the file in the right folder
 
@@ -109,30 +141,38 @@ rebuilds the whole index each time, so removed files and removed sections disapp
 
 ## 3. Re-index
 
-With the Docker setup, from the repository folder (Windows and Linux alike):
+**With Docker** (Windows and Linux alike):
 
 ```bash
 python scripts/manage.py ingest
 ```
 
 This rebuilds the index from `data/corpus` and restarts the API so it loads the new index. The
-corpus folder is mounted into the container, so there is no image to rebuild. Cached answers are
-keyed by corpus version, so old answers aren't served after the change.
+corpus folder is mounted into the container, so there is no image to rebuild.
 
-For a native install (no Docker), run `copilot ingest` in your virtual environment and restart
-`copilot serve`.
+**Without Docker:**
 
-The command prints a summary such as `documents`, `chunks`, `by_tenant` and `by_min_role` (also
-saved in `data/index/manifest.json`). Check that the document count went up and that no warning
-says `has no min_role; defaulting to admin`.
+```powershell
+copilot ingest
+```
+
+Then stop `copilot serve` with Ctrl+C and start it again.
+
+Cached answers are keyed by corpus version, so old answers aren't served after the change. The
+command prints a summary such as `documents`, `chunks`, `by_tenant` and `by_min_role` (also saved
+in `manifest.json` in the index folder). Check that the document count went up and that no
+warning says `has no min_role; defaulting to admin`.
 
 ## 4. Check it
 
 Sign in to the web UI as a user of the right tenant and role and ask about the new document, or
-ask from the command line (Docker):
+ask from the command line:
 
 ```bash
+# with Docker
 docker compose run --rm api copilot ask "How far ahead must I book flights?" --role employee --tenant policy
+# without Docker
+copilot ask "How far ahead must I book flights?" --role employee --tenant policy
 ```
 
 Then ask as a lower role about a restricted section to confirm it is refused: the demo users are
@@ -141,13 +181,26 @@ alice (employee), bob (manager) and carol (admin).
 ## Adding a new tenant
 
 A tenant is a separate workspace with its own documents, for example `legal` next to `policy`
-and `engineering`. Give access by role, by user, or both:
+and `engineering`. Give access by role, by user, or both.
+
+**With Docker:**
 
 ```bash
 python scripts/manage.py add-tenant legal --label "Legal" --grant admin,manager
+python scripts/manage.py add-doc "Contracts.docx" --tenant legal --min-role employee --ingest
 ```
 
-This creates `data/corpus/legal/` with a `tenant.yaml`:
+**Without Docker:**
+
+```powershell
+copilot tenants add legal --label "Legal" --grant admin,manager
+copilot add-doc "Contracts.docx" --tenant legal --min-role employee
+copilot ingest
+```
+
+Then restart `copilot serve` (Ctrl+C, then start it again).
+
+Either way, this creates `data/corpus/legal/` with a `tenant.yaml`:
 
 ```yaml
 label: "Legal"                  # shown in the web UI's workspace picker
@@ -157,22 +210,19 @@ roles: ["admin", "manager"]     # every user with one of these roles can use the
 Access by role is a rule, not a one-time copy: a manager added next month gets Legal too. In
 `--grant`, the role names `employee`, `manager` and `admin` mean roles; anything else is a
 username, so `--grant manager,alice` opens it to all managers plus alice. `--grant-all` gives
-every existing user access. The new workspace shows up in the web UI right away. Then add
-documents to it and re-index:
-
-```bash
-python scripts/manage.py add-doc "Contracts.docx" --tenant legal --min-role employee --ingest
-```
+every existing user access. The new workspace shows up in the web UI's picker right away.
 
 Roles and `min_role` work together: `--grant admin,manager` decides who can open the Legal
 workspace, and each document's `min_role` still decides what they see inside it.
 
-**Suggested questions.** After someone picks a workspace, the chat shows a few questions they
-can click. `add-doc` writes them for you: for each document it imports, it asks the local LLM for
-a likely question per section and adds them to the top of the tenant's `tenant.yaml`, per role.
-A question about a manager-only section is only added for managers and admins. If Ollama isn't
-running, it uses the section headings instead (`What does the Brand Guidelines say about "Logo
-usage"?`). Each role keeps the six newest; pass `--no-suggest` to skip this for a document.
+### Suggested questions
+
+After someone picks a workspace, the chat shows a few questions they can click. `add-doc` writes
+them for you: for each document it imports, it asks the local LLM for a likely question per
+section and adds them to the top of the tenant's `tenant.yaml`, per role. A question about a
+manager-only section is only added for managers and admins. If Ollama isn't running, it uses the
+section headings instead (`What does the Brand Guidelines say about "Logo usage"?`). Each role
+keeps the six newest; pass `--no-suggest` to skip this for a document.
 
 ```yaml
 label: "Marketing"
@@ -185,9 +235,13 @@ suggestions:
 
 You can edit or reorder them in `tenant.yaml`; changes show up the next time the workspace is
 opened, with no restart or re-index. A tenant with no list at all gets questions made from its
-section headings. `data/corpus/policy/tenant.yaml` holds the examples for Company policy.
+section headings. `data/corpus/policy/tenant.yaml` holds the examples for Company policy. The
+first time a workspace is opened after the server starts, the questions can take a few seconds
+to appear while the index loads.
 
-Managing access later:
+### Managing access later
+
+**With Docker:**
 
 ```bash
 python scripts/manage.py users list                          # who has which tenants
@@ -196,22 +250,27 @@ python scripts/manage.py users revoke dana legal             # remove it (takes 
 python scripts/manage.py users add erin --role employee --tenants legal
 ```
 
+**Without Docker:** the same commands as `copilot users list`, `copilot users grant dana legal`,
+`copilot users revoke dana legal` and `copilot users add erin --role employee --tenants legal`.
+`copilot tenants list` shows every tenant with its document count.
+
 To change which roles can use a tenant, edit `roles` in its `tenant.yaml`; the change applies on
 the next request, and removing a role signs those users out of that workspace. Revoking a tenant
 from one user doesn't override their role: if the tenant is open to managers, a manager keeps it.
 
-For a native install, use `copilot tenants add ...`, `copilot tenants list` and
-`copilot users grant ...`. Tenant names are lowercase letters, digits, `-` and `_`. To remove a
-tenant, delete its folder, revoke it from its users and re-index.
+Tenant names are lowercase letters, digits, `-` and `_`. To remove a tenant, delete its folder,
+revoke it from its users and re-index.
 
 ## Troubleshooting
 
 | Symptom | Cause |
 | --- | --- |
-| Answers never mention the new document | ingest wasn't re-run, or the file extension isn't supported |
-| The sign-in page still shows only two workspaces | the API container is running code from before the upgrade: run `python scripts/manage.py up`, then reload the page with Ctrl+F5 |
-| A new workspace isn't in the picker for a user | grant it with `users grant <user> <tenant>` |
-| A workspace lost its name, suggestions or role access | its `tenant.yaml` has a YAML error and is being ignored; the API log names it. Put questions in quotes |
+| `manage.py` says *the Docker daemon is not reachable* | Docker Desktop isn't running. Start it, or if you run the copilot without Docker, use the `copilot ...` commands instead |
+| *'copilot' is not recognized* | the virtual environment isn't active in this window: run `.venv\Scripts\Activate.ps1` (Windows) or `source .venv/bin/activate` (Linux) from the repository folder |
+| Answers never mention the new document | ingest wasn't re-run, the server wasn't restarted after a native `copilot ingest`, or the file extension isn't supported |
+| The sign-in page still shows only two workspaces | with Docker, the API container is running code from before the upgrade: run `python scripts/manage.py up`, then reload the page with Ctrl+F5 |
+| A new workspace isn't in the picker for a user | grant it with `users grant <user> <tenant>` in the setup you sign in to (Docker and native keep separate accounts) |
+| A workspace lost its name, suggestions or role access | its `tenant.yaml` has a YAML error and is being ignored; the server log names it. Put questions in quotes |
 | Only admins can see it | `min_role` is missing or the front matter isn't the first thing in the file |
 | `duplicate doc_id` error | two files in the same tenant share a `doc_id` (or file name) |
 | `unknown role` error | `min_role` or an `acl:` marker has a typo |
