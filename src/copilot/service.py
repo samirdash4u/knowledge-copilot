@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import time
 
+from copilot.acl import access_scope, forbidden_canaries
 from copilot.cache import AnswerCache, InMemorySemanticCache, NullCache, RedisSemanticCache
 from copilot.config import Settings
-from copilot.generation.citations import check_citations
-from copilot.generation.llm import LLM, EchoLLM, OllamaLLM
+from copilot.generation.citations import check_citations, faithfulness
+from copilot.generation.llm import LLM, EchoLLM, OllamaLLM, chat_with_usage
 from copilot.generation.prompt import REFUSAL, build_messages
 from copilot.ingest.pipeline import run_ingest
 from copilot.models import Answer, Chunk, Principal
@@ -78,6 +79,15 @@ class CopilotService:
         self.llm = llm
         self.cache = cache
         self.corpus_version = corpus_version
+        self.chunks_by_id = {c.chunk_id: c for c in self.chunks}
+        self._forbidden: dict[str, set[str]] = {}
+
+    def forbidden_canaries(self, principal: Principal) -> set[str]:
+        """Canary tokens this caller must never see, computed once per access scope."""
+        scope = access_scope(principal)
+        if scope not in self._forbidden:
+            self._forbidden[scope] = forbidden_canaries(self.chunks, principal)
+        return self._forbidden[scope]
 
     @classmethod
     def from_settings(cls, s: Settings) -> CopilotService:
@@ -111,6 +121,7 @@ class CopilotService:
             cached = self.cache.get(principal, qvec)
             if cached is not None:
                 cached.timings_ms = {"total": (time.perf_counter() - t0) * 1000}
+                cached.usage = {}  # no tokens spent this time
                 return cached
 
         t = time.perf_counter()
@@ -122,7 +133,7 @@ class CopilotService:
             ans = Answer(text=REFUSAL, citations=[], refused=True)
         else:
             t = time.perf_counter()
-            raw = self.llm.chat(build_messages(question, results))
+            raw, usage = chat_with_usage(self.llm, build_messages(question, results))
             timings["generate"] = (time.perf_counter() - t) * 1000
             checked = check_citations(raw, results)
             ans = Answer(
@@ -131,6 +142,11 @@ class CopilotService:
                 refused=checked.text.strip() == REFUSAL,
                 uncited_sentences=checked.uncited_sentences,
                 retrieved_chunk_ids=[r.chunk.chunk_id for r in results],
+                faithfulness=faithfulness(checked.text, results),
+                usage={
+                    "prompt_tokens": usage.prompt_tokens,
+                    "completion_tokens": usage.completion_tokens,
+                },
             )
 
         timings["total"] = (time.perf_counter() - t0) * 1000

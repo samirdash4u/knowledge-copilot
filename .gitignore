@@ -13,4 +13,5 @@ data/cache/
 reports/*.json
 !reports/.gitkeep
 data/users.db
+data/metrics.db
 *.db-journal

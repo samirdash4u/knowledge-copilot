@@ -12,11 +12,15 @@ Three rules this module enforces:
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Iterable
 
 from copilot.models import Chunk, Principal, ScoredChunk
 
 log = logging.getLogger(__name__)
+
+# Restricted sections carry these tokens, so a leak shows up as a canary in text a caller saw.
+CANARY = re.compile(r"CANARY-[A-Z0-9-]+")
 
 
 class AccessViolation(RuntimeError):
@@ -53,3 +57,16 @@ def access_scope(principal: Principal) -> str:
     rules (departments, regions) are added later, extend this so the cache stays correct.
     """
     return f"{principal.tenant}:{principal.role.label}"
+
+
+def forbidden_canaries(all_chunks: Iterable[Chunk], principal: Principal) -> set[str]:
+    """Canary tokens in chunks this principal may not see."""
+    out: set[str] = set()
+    for c in all_chunks:
+        if not can_access(principal, c):
+            out.update(CANARY.findall(c.text))
+    return out
+
+
+def leaked_canaries(text: str, forbidden: set[str]) -> set[str]:
+    return {c for c in CANARY.findall(text) if c in forbidden}

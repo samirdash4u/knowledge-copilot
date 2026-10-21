@@ -4,6 +4,7 @@ extractive stand-in used by tests and CI."""
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Protocol
 
 import httpx
@@ -15,6 +16,27 @@ class LLM(Protocol):
     def chat(self, messages: list[dict]) -> str: ...
 
 
+@dataclass
+class Usage:
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    estimated: bool = False  # counted from text length, not reported by the model server
+
+
+def estimate_tokens(text: str) -> int:
+    """Rough token count (about 4 characters per token for English)."""
+    return max(1, len(text) // 4) if text else 0
+
+
+def chat_with_usage(llm: LLM, messages: list[dict]) -> tuple[str, Usage]:
+    """Call the model and return its reply with token counts, estimating them if needed."""
+    if hasattr(llm, "chat_with_usage"):
+        return llm.chat_with_usage(messages)
+    text = llm.chat(messages)
+    prompt = sum(estimate_tokens(m.get("content", "")) for m in messages)
+    return text, Usage(prompt, estimate_tokens(text), estimated=True)
+
+
 class OllamaLLM:
     def __init__(self, url: str, model: str, temperature: float = 0.1, timeout: float = 120.0):
         self.url = url.rstrip("/")
@@ -23,6 +45,9 @@ class OllamaLLM:
         self.client = httpx.Client(timeout=timeout)
 
     def chat(self, messages: list[dict]) -> str:
+        return self.chat_with_usage(messages)[0]
+
+    def chat_with_usage(self, messages: list[dict]) -> tuple[str, Usage]:
         resp = self.client.post(
             f"{self.url}/api/chat",
             json={
@@ -33,7 +58,13 @@ class OllamaLLM:
             },
         )
         resp.raise_for_status()
-        return resp.json()["message"]["content"].strip()
+        data = resp.json()
+        text = data["message"]["content"].strip()
+        if "prompt_eval_count" in data or "eval_count" in data:
+            # Ollama leaves out prompt_eval_count when the whole prompt came from its KV cache.
+            return text, Usage(data.get("prompt_eval_count", 0), data.get("eval_count", 0))
+        prompt = sum(estimate_tokens(m.get("content", "")) for m in messages)
+        return text, Usage(prompt, estimate_tokens(text), estimated=True)
 
 
 _SOURCE = re.compile(r"^\[(\d+)\] .*?\n(.*?)(?=\n\n\[\d+\] |\n\nQuestion: )", re.S | re.M)

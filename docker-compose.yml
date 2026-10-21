@@ -19,8 +19,11 @@ services:
       COPILOT_OLLAMA_URL: http://ollama:11434
       COPILOT_INDEX_DIR: /index
       COPILOT_USERS_DB: /index/users.db
+      COPILOT_METRICS_DB: /index/metrics.db
+      COPILOT_EVAL_REPORT: /reports/eval.json
     volumes:
       - ./data/corpus:/app/data/corpus:ro
+      - ./reports:/reports:ro  # the latest eval report, for the offline KPIs
       - index:/index
       - hf-models:/models/hf
     depends_on: [qdrant, redis, ollama]

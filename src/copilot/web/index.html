@@ -112,6 +112,22 @@
     background: var(--ok-bg); color: var(--ok-text); border-radius: 8px; padding: 8px 14px;
     font-size: 14px; box-shadow: var(--shadow); max-width: calc(100% - 32px);
   }
+  /* KPIs (admins) */
+  .kpi-wrap { max-width: 900px; margin: 0 auto; }
+  .kpi-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .kpi-head h2 { font-size: 18px; margin: 0 auto 0 0; }
+  .kpi-head select { width: auto; padding: 5px 8px; }
+  .kpi-table-box { overflow-x: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
+  table.kpi { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.kpi th, table.kpi td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.kpi tr:last-child td { border-bottom: 0; }
+  table.kpi th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  table.kpi td.num { font-variant-numeric: tabular-nums; }
+  .status { font-size: 12px; font-weight: 600; padding: 1px 7px; border-radius: 999px; margin-left: 6px; }
+  .status.ok { background: var(--ok-bg); color: var(--ok-text); }
+  .status.miss { background: var(--warn-bg); color: var(--warn-text); }
+  .kpi-notes { color: var(--muted); font-size: 13px; margin-top: 12px; }
+  .kpi-notes p { margin: 4px 0; }
   @media (max-width: 600px) {
     header { flex-wrap: wrap; gap: 8px; }
     header .btn { padding: 6px 10px; font-size: 14px; }
@@ -169,6 +185,7 @@
     <span class="who" id="who"></span>
     <span class="badge" id="role-badge"></span>
     <select id="tenant-select" aria-label="Workspace"></select>
+    <button class="btn hidden" id="open-kpis">KPIs</button>
     <button class="btn" id="open-password">Change password</button>
     <button class="btn" id="logout">Sign out</button>
   </header>
@@ -186,6 +203,37 @@
       <button class="btn primary" type="submit" id="send">Send</button>
     </form>
   </footer>
+</section>
+
+<!-- KPIs (admins only) -->
+<section id="kpi-view" class="app hidden">
+  <header>
+    <span class="brand">Knowledge Copilot · KPIs</span>
+    <button class="btn" id="kpi-back">Back to chat</button>
+  </header>
+  <main>
+    <div class="kpi-wrap">
+      <div class="kpi-head">
+        <h2>Quality, safety, speed and cost</h2>
+        <label for="kpi-hours" style="margin:0">Live window</label>
+        <select id="kpi-hours">
+          <option value="1">Last hour</option>
+          <option value="24" selected>Last 24 hours</option>
+          <option value="168">Last 7 days</option>
+          <option value="720">Last 30 days</option>
+        </select>
+        <button class="btn" id="kpi-refresh">Refresh</button>
+      </div>
+      <div class="kpi-table-box">
+        <table class="kpi">
+          <thead><tr><th>KPI</th><th>Target</th><th>Live traffic</th><th>Latest eval</th></tr></thead>
+          <tbody id="kpi-body"></tbody>
+        </table>
+      </div>
+      <div class="kpi-notes" id="kpi-notes"></div>
+      <div class="error" id="kpi-error" role="alert"></div>
+    </div>
+  </main>
 </section>
 
 <div class="toast hidden" id="toast" role="status"></div>
@@ -223,7 +271,7 @@
   }
 
   function show(view) {
-    for (const id of ["login-view", "password-view", "chat-view"]) $(id).classList.toggle("hidden", id !== view);
+    for (const id of ["login-view", "password-view", "chat-view", "kpi-view"]) $(id).classList.toggle("hidden", id !== view);
   }
 
   function startSession(session) {
@@ -301,6 +349,7 @@
   function renderHeader() {
     $("who").textContent = me.username;
     $("role-badge").textContent = me.role;
+    $("open-kpis").classList.toggle("hidden", me.role !== "admin");
     const sel = $("tenant-select");
     sel.innerHTML = "";
     for (const t of me.tenants) {
@@ -472,6 +521,64 @@
     q.value = ""; q.style.height = "auto";
     ask(text);
   });
+
+  // ---------- KPIs ----------
+  function fmt(v, unit, currency) {
+    if (v === null || v === undefined) return "–";
+    if (unit === "percent") return (v * 100).toFixed(1) + "%";
+    if (unit === "ms") return Math.round(v).toLocaleString() + " ms";
+    if (unit === "money") return v.toFixed(6) + " " + currency;
+    return v.toFixed(3);
+  }
+  function cell(row, text, status) {
+    const td = document.createElement("td");
+    td.className = "num"; td.textContent = text;
+    if (status) {
+      const s = document.createElement("span");
+      s.className = "status " + status; s.textContent = status === "ok" ? "on target" : "off target";
+      td.appendChild(s);
+    }
+    row.appendChild(td);
+  }
+  async function loadKpis() {
+    $("kpi-error").textContent = "";
+    let r;
+    try { r = await api("/kpis?hours=" + $("kpi-hours").value); } catch (err) {
+      if (err.status === 401) return signOut("Your session expired. Please sign in again.");
+      $("kpi-error").textContent = "Could not load KPIs: " + err.message;
+      return;
+    }
+    const body = $("kpi-body");
+    body.innerHTML = "";
+    for (const k of r.kpis) {
+      const tr = document.createElement("tr");
+      const name = document.createElement("td"); name.textContent = k.label; tr.appendChild(name);
+      cell(tr, (k.higher_is_better ? "≥ " : "≤ ") + fmt(k.target, k.unit, r.currency));
+      cell(tr, fmt(k.online, k.unit, r.currency), k.online_status);
+      cell(tr, fmt(k.offline, k.unit, r.currency), k.offline_status);
+      body.appendChild(tr);
+    }
+    const notes = $("kpi-notes");
+    notes.innerHTML = "";
+    const note = (text) => { const p = document.createElement("p"); p.textContent = text; notes.appendChild(p); };
+    const on = r.online;
+    if (on.requests) {
+      const parts = Object.entries(on.by_status).filter(([, n]) => n).map(([s, n]) => `${n} ${s}`);
+      note(`Live: ${on.requests} questions (${parts.join(", ")}), cache hit rate ${fmt(on.cache_hit_rate, "percent")}.`);
+    } else {
+      note("Live: no questions in this window yet.");
+    }
+    if (r.offline) {
+      note(`Eval: ${r.offline.questions} questions, mode ${r.offline.mode}, run ${r.offline.generated_at}.`);
+    } else {
+      note("Eval: no report yet. Run the eval to fill in Recall@5 and MRR.");
+    }
+    note(`An answer is grounded when its cited sources support at least ${Math.round(r.grounded_threshold * 100)}% of it. Cost is a local estimate (compute time and token prices from settings).`);
+  }
+  $("open-kpis").addEventListener("click", () => { show("kpi-view"); loadKpis(); });
+  $("kpi-back").addEventListener("click", () => route());
+  $("kpi-refresh").addEventListener("click", loadKpis);
+  $("kpi-hours").addEventListener("change", loadKpis);
 
   // Workspaces come from the corpus folders, so a tenant added later shows up without a UI change.
   async function loadTenants() {

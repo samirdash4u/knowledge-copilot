@@ -1,4 +1,5 @@
-"""Command line: ``copilot ingest | add-doc | tenants | ask | token | eval | users | serve``."""
+"""Command line: ``copilot ingest | add-doc | tenants | ask | token | eval | kpis | users |
+serve``."""
 
 from __future__ import annotations
 
@@ -233,13 +234,16 @@ def _cmd_tenants_add(args: argparse.Namespace) -> None:
 def _cmd_eval(args: argparse.Namespace) -> None:
     from copilot.eval.runner import evaluate, format_table, load_questions
     from copilot.retrieval.vector import load_chunks
-    from copilot.service import CopilotService
+    from copilot.service import CopilotService, make_llm
 
     s = get_settings()
     service = CopilotService.from_settings(s)
     questions = load_questions(Path(args.questions))
     chunks = load_chunks(s.index_dir / "chunks.jsonl")
-    report = evaluate(service, questions, chunks, args.modes.split(","), args.retrieval_only)
+    judge = make_llm(s) if args.judge and not args.retrieval_only else None
+    report = evaluate(
+        service, questions, chunks, args.modes.split(","), args.retrieval_only, judge=judge
+    )
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2))
@@ -247,9 +251,23 @@ def _cmd_eval(args: argparse.Namespace) -> None:
     print(f"\nFull report: {out}")
     total_leaks = sum(m["leaks"] for m in report["modes"].values())
     total_leaks += report.get("cache_poisoning_leaks", 0)
-    if total_leaks:
-        print(f"FAIL: {total_leaks} leak(s)", file=sys.stderr)
+    unauthorized = sum(m["unauthorized"] for m in report["modes"].values())
+    if total_leaks or unauthorized:
+        print(
+            f"FAIL: {total_leaks} leak(s), {unauthorized} question(s) with unauthorized retrieval",
+            file=sys.stderr,
+        )
         sys.exit(1)
+
+
+def _cmd_kpis(args: argparse.Namespace) -> None:
+    from copilot.metrics import Monitor, format_kpis
+
+    report = Monitor(get_settings()).report(args.hours)
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        print(format_kpis(report))
 
 
 def _lan_addresses() -> list[str]:
@@ -332,7 +350,15 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--modes", default="bm25,vector,hybrid,hybrid_rerank")
     p.add_argument("--retrieval-only", action="store_true", help="skip the LLM")
     p.add_argument("--out", default="reports/eval.json")
+    p.add_argument(
+        "--judge", action="store_true", help="also score faithfulness with the LLM (slower)"
+    )
     p.set_defaults(func=_cmd_eval)
+
+    p = sub.add_parser("kpis", help="show the KPIs: live traffic and the latest eval")
+    p.add_argument("--hours", type=float, default=24, help="live window (default: 24)")
+    p.add_argument("--json", action="store_true", help="print the full report as JSON")
+    p.set_defaults(func=_cmd_kpis)
 
     users = sub.add_parser("users", help="manage web UI accounts").add_subparsers(required=True)
     p = users.add_parser("add", help="create a user")

@@ -4,12 +4,13 @@ No ``from __future__ import annotations`` here: FastAPI resolves dependency anno
 """
 
 import logging
+import time
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
@@ -17,7 +18,8 @@ from copilot import suggestions as suggest
 from copilot.acl import AccessViolation
 from copilot.auth import AuthError, decode_token, issue_token
 from copilot.config import Settings, get_settings
-from copilot.models import Principal
+from copilot.metrics import Monitor, audit, record_answer, record_failure
+from copilot.models import Principal, Role
 from copilot.service import CopilotService
 from copilot.tenants import list_tenants, read_meta, tenants_for
 from copilot.users import LoginThrottle, PasswordPolicyError, User, UserStore
@@ -90,11 +92,15 @@ def create_app(
     settings: Settings | None = None,
     service: CopilotService | None = None,
     users: UserStore | None = None,
+    monitor: Monitor | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     app = FastAPI(title="Knowledge Copilot", version="0.2.0")
     app.state.settings = settings
     app.state.service = service
+    if monitor is None and settings.metrics_enabled:
+        monitor = Monitor(settings)
+    app.state.monitor = monitor
 
     if users is None:
         users = UserStore(settings.users_db, settings.password_hash_iterations)
@@ -247,11 +253,26 @@ def create_app(
         principal: Annotated[Principal, Depends(get_principal)],
         service: Annotated[CopilotService, Depends(get_service)],
     ) -> dict:
+        mode = body.mode or settings.retrieval_mode
+        t0 = time.perf_counter()
+
+        def elapsed_ms() -> float:
+            return (time.perf_counter() - t0) * 1000
+
         try:
-            ans = service.answer(principal, body.question, mode=body.mode, use_cache=body.use_cache)
+            ans = service.answer(principal, body.question, mode=mode, use_cache=body.use_cache)
         except AccessViolation as exc:
+            if monitor:
+                monitor.observe(record_failure(settings, principal, mode, "blocked", elapsed_ms()))
             # Fail closed: never return partial results after an ACL check fails.
             raise HTTPException(500, "internal access check failed") from exc
+        except Exception:
+            if monitor:
+                monitor.observe(record_failure(settings, principal, mode, "error", elapsed_ms()))
+            raise
+        if monitor:
+            bad = audit(service, principal, ans)
+            monitor.observe(record_answer(settings, principal, mode, ans, elapsed_ms(), bad))
         return asdict(ans)
 
     @app.get("/suggestions")
@@ -265,6 +286,26 @@ def create_app(
         if configured is not None:
             return configured
         return suggest.generated(principal, service.chunks)
+
+    # ---------- KPI monitoring ----------
+
+    if monitor is not None:
+
+        @app.get("/kpis")
+        def kpis(
+            principal: Annotated[Principal, Depends(get_principal)], hours: float = 24
+        ) -> dict:
+            """KPI summary: live numbers for the last ``hours`` and the latest eval. Admins only."""
+            if principal.role != Role.ADMIN:
+                raise HTTPException(403, "only admins can see KPIs")
+            return monitor.report(max(0.1, min(hours, 24 * settings.metrics_retention_days)))
+
+        @app.get("/metrics", include_in_schema=False)
+        def metrics() -> PlainTextResponse:
+            """Prometheus scrape endpoint. Counts only: no questions, answers or user names."""
+            return PlainTextResponse(
+                monitor.prometheus(), media_type="text/plain; version=0.0.4; charset=utf-8"
+            )
 
     if settings.dev_token_endpoint:
 

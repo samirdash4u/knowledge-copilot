@@ -188,9 +188,19 @@ To run the full app natively with Ollama, see path B in the [Windows](docs/insta
 python scripts/manage.py eval   # all four retrieval modes, with the real models
 ```
 
-The report gives recall@k, MRR, refusal accuracy, keyword accuracy, citation coverage, leaks and
-p50/p95 latency for each of `bm25`, `vector`, `hybrid` and `hybrid_rerank`, plus a cache-poisoning
-pass. The command exits non-zero if anything leaks.
+The report gives Recall@5, recall@k, MRR, groundedness, faithfulness, unauthorized retrieval
+rate, refusal accuracy, keyword accuracy, citation coverage, leaks, p50/p95 latency and cost per
+successful answer for each of `bm25`, `vector`, `hybrid` and `hybrid_rerank`, plus a
+cache-poisoning pass. The command exits non-zero if anything leaks. Add `--judge` to also score
+faithfulness with the local LLM.
+
+## KPI monitoring
+
+The same KPIs are tracked on live traffic: every question records its latency, groundedness,
+faithfulness, any unauthorized retrieval, tokens and estimated cost (no question text). Admins see
+them under **KPIs** in the web UI; `copilot kpis` (or `python scripts/manage.py kpis`) prints them,
+and `GET /metrics` serves them to Prometheus. No extra services are needed. See
+[docs/monitoring.md](docs/monitoring.md).
 
 ## Project layout
 
@@ -203,10 +213,12 @@ src/copilot/
   generation/          prompt, Ollama client, citation checker
   cache.py             role-scoped semantic cache (memory / Redis)
   service.py           the question-answering pipeline
+  metrics.py           KPI records (SQLite), Prometheus metrics, KPI summary
   users.py             SQLite user accounts, password hashing, login throttling
   web/index.html       the web UI (no build step)
   api.py, cli.py       HTTP API and command line
   eval/runner.py       metrics, canary leak detection, cache-poisoning test
+  eval/judge.py        LLM-judged faithfulness for `eval --judge`
 data/corpus/{policy,engineering}/   documents (first folder level = tenant)
 eval/questions.jsonl                golden question set
 ```
@@ -215,8 +227,9 @@ eval/questions.jsonl                golden question set
 
 - [ ] Grow the corpus to 50–100 documents with public regulatory and handbook sources
 - [x] Web UI with login, password change and chat
-- [ ] OpenTelemetry tracing and Prometheus metrics
-- [ ] RAGAS faithfulness scoring with a local judge model
+- [x] KPI monitoring: live and eval KPIs, Prometheus metrics, admin KPI view
+- [x] Faithfulness scoring with a local judge model (`copilot eval --judge`)
+- [ ] OpenTelemetry tracing
 - [ ] Ablation results table and latency benchmarks in this README
 - [ ] Cloud deployment pipeline
 
