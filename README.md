@@ -188,9 +188,77 @@ To run the full app natively with Ollama, see path B in the [Windows](docs/insta
 python scripts/manage.py eval   # all four retrieval modes, with the real models
 ```
 
-The report gives recall@k, MRR, refusal accuracy, keyword accuracy, citation coverage, leaks and
-p50/p95 latency for each of `bm25`, `vector`, `hybrid` and `hybrid_rerank`, plus a cache-poisoning
-pass. The command exits non-zero if anything leaks.
+The report gives Recall@5, recall@k, MRR, groundedness, faithfulness, unauthorized retrieval
+rate, refusal accuracy, keyword accuracy, citation coverage, leaks, p50/p95 latency and cost per
+successful answer for each of `bm25`, `vector`, `hybrid` and `hybrid_rerank`, plus a
+cache-poisoning pass. The command exits non-zero if anything leaks. Add `--judge` to also score
+faithfulness with the local LLM.
+
+## KPI monitoring
+
+Seven KPIs are tracked, on live traffic and in the eval. Nothing extra needs to be installed or
+started, so it works the same natively on Windows and in Docker.
+
+| KPI | Live | Eval | Default target |
+|---|---|---|---|
+| Recall@5 | | ✓ | ≥ 0.90 |
+| MRR | | ✓ | ≥ 0.75 |
+| Groundedness (answers supported by their cited sources) | ✓ | ✓ | ≥ 90% |
+| Faithfulness (share of each answer found in its sources) | ✓ | ✓ | ≥ 0.80 |
+| Unauthorized-document retrieval rate | ✓ | ✓ | 0% |
+| p95 latency | ✓ | ✓ | ≤ 10 s |
+| Cost per successful answer (local estimate) | ✓ | ✓ | ≤ 0.0001 USD |
+
+Live numbers come from every question asked in the web UI or through `POST /ask`. Each one is
+stored in `data/metrics.db` (`/index/metrics.db` in Docker) without the question, the answer or the
+user name. Recall@5 and MRR need known right answers, so they come only from the eval.
+
+### Monitor the KPIs
+
+1. **Fill in the eval numbers.** Run the eval after an ingest, or whenever you change the model,
+   the documents or the retrieval settings:
+
+   ```bash
+   python scripts/manage.py eval            # Docker
+   copilot eval                             # native, venv active; writes reports/eval.json
+   copilot eval --judge                     # also has the local LLM judge faithfulness (slower)
+   ```
+
+2. **Use the app.** Every question adds to the live numbers.
+
+3. **Look at the KPIs**, in any of these ways:
+
+   - **Web UI:** sign in as an admin (for example `carol`) and click **KPIs** in the header. Each
+     KPI shows its target, the live value for the window you pick (last hour, 24 hours, 7 or 30
+     days) and the eval value, marked *on target* or *off target*. Other roles don't see the button.
+   - **Command line:**
+
+     ```bash
+     python scripts/manage.py kpis            # Docker: last 24 hours plus the latest eval
+     python scripts/manage.py kpis --hours 168
+     copilot kpis                             # native
+     copilot kpis --hours 1 --json            # JSON, for scripts
+     ```
+
+   - **Prometheus (optional):** point it at `http://localhost:8000/metrics` for graphs and alerts.
+     The PromQL for each KPI is in [docs/monitoring.md](docs/monitoring.md#with-prometheus-optional).
+
+A few things to know:
+
+- **Faithfulness** live is a quick word-overlap check of each sentence against the chunks it cites
+  (an uncited sentence scores 0). An answer counts as **grounded** at 0.7 or above
+  (`COPILOT_GROUNDED_THRESHOLD`). `eval --judge` adds a stricter LLM-judged score.
+- **Unauthorized retrieval** counts a question when the access check blocked a restricted chunk,
+  a retrieved or cited chunk fails the role and tenant re-check, or a restricted `CANARY-*` token
+  shows up in the answer. Any hit is also logged as an error, and the eval fails on it.
+- **Cost** has no API bill behind it. Each question is priced as compute seconds ×
+  `COPILOT_COST_PER_COMPUTE_SECOND` (default: about 150 W at 0.15 USD/kWh) plus tokens × the
+  per-1k token prices, which default to 0. Set them to compare with a hosted model. The cost of
+  failed and refused questions is spread over the successful ones.
+- Targets, retention and the cost rates are settings in `.env`. `COPILOT_METRICS_ENABLED=false`
+  turns recording and `/metrics` off. `/metrics` needs no token and holds counts only.
+
+All the definitions and settings are in [docs/monitoring.md](docs/monitoring.md).
 
 ## Project layout
 
@@ -203,10 +271,12 @@ src/copilot/
   generation/          prompt, Ollama client, citation checker
   cache.py             role-scoped semantic cache (memory / Redis)
   service.py           the question-answering pipeline
+  metrics.py           KPI records (SQLite), Prometheus metrics, KPI summary
   users.py             SQLite user accounts, password hashing, login throttling
   web/index.html       the web UI (no build step)
   api.py, cli.py       HTTP API and command line
   eval/runner.py       metrics, canary leak detection, cache-poisoning test
+  eval/judge.py        LLM-judged faithfulness for `eval --judge`
 data/corpus/{policy,engineering}/   documents (first folder level = tenant)
 eval/questions.jsonl                golden question set
 ```
@@ -215,8 +285,9 @@ eval/questions.jsonl                golden question set
 
 - [ ] Grow the corpus to 50–100 documents with public regulatory and handbook sources
 - [x] Web UI with login, password change and chat
-- [ ] OpenTelemetry tracing and Prometheus metrics
-- [ ] RAGAS faithfulness scoring with a local judge model
+- [x] KPI monitoring: live and eval KPIs, Prometheus metrics, admin KPI view
+- [x] Faithfulness scoring with a local judge model (`copilot eval --judge`)
+- [ ] OpenTelemetry tracing
 - [ ] Ablation results table and latency benchmarks in this README
 - [ ] Cloud deployment pipeline
 

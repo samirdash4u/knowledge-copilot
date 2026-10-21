@@ -110,3 +110,5 @@ class Answer:
     uncited_sentences: list[str] = field(default_factory=list)
     retrieved_chunk_ids: list[str] = field(default_factory=list)
     timings_ms: dict[str, float] = field(default_factory=dict)
+    faithfulness: float | None = None  # see generation.citations.faithfulness
+    usage: dict[str, int] = field(default_factory=dict)  # LLM tokens spent on this request

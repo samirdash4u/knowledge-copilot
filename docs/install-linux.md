@@ -236,6 +236,10 @@ docker compose exec api copilot users add dave --role manager   # path A
 copilot users add dave --role manager                            # path B, venv active
 ```
 
+To watch quality, safety, speed and cost (Recall@5, MRR, groundedness, faithfulness,
+unauthorized retrieval rate, p95 latency, cost per answer), sign in as an admin such as `carol` and
+click **KPIs**, or run `copilot kpis`. See [monitoring.md](monitoring.md).
+
 ## 8. Clean up
 
 Run these in the project folder. Each command lists what it will delete and asks first; add

@@ -13,7 +13,8 @@ Docker. It replaces the Makefile targets, which need ``make`` and a POSIX shell.
     python scripts/manage.py ingest       index the documents
     python scripts/manage.py status       health check and the URLs to open
     python scripts/manage.py logs         follow the API logs
-    python scripts/manage.py eval         run the evaluation set
+    python scripts/manage.py eval         run the evaluation set (offline KPIs)
+    python scripts/manage.py kpis         show the KPIs: live traffic and the latest eval
     python scripts/manage.py down         stop everything (data is kept)
     python scripts/manage.py clean        remove containers and generated files (see --help)
 
@@ -288,11 +289,22 @@ def ingest(_: argparse.Namespace) -> None:
         print("the API did not answer yet; check 'python scripts/manage.py logs'")
 
 
-def evaluate(_: argparse.Namespace) -> None:
+def evaluate(args: argparse.Namespace) -> None:
     docker_check()
     reports = ROOT / "reports"
     reports.mkdir(exist_ok=True)
-    run(compose_cmd() + ["run", "--rm", "-v", f"{reports}:/app/reports", "api", "copilot", "eval"])
+    extra = ["--judge"] if args.judge else []
+    run(
+        compose_cmd()
+        + ["run", "--rm", "-v", f"{reports}:/app/reports", "api", "copilot", "eval", *extra]
+    )
+
+
+def kpis(args: argparse.Namespace) -> None:
+    docker_check()
+    extra = ["--hours", str(args.hours)] + (["--json"] if args.json else [])
+    # exec, not run: the request records live in the running API container's index volume.
+    run(compose_cmd() + ["exec", "api", "copilot", "kpis", *extra])
 
 
 def logs(_: argparse.Namespace) -> None:
@@ -325,7 +337,7 @@ GENERATED_PATHS = [
     ".pytest_cache",
     ".ruff_cache",
 ]
-USER_DATA_PATHS = ["data/users.db", "data/users.db-journal"]
+USER_DATA_PATHS = ["data/users.db", "data/users.db-journal", "data/metrics.db"]
 
 
 def project_name() -> str:
@@ -482,7 +494,13 @@ def main() -> None:
     p.add_argument("rest", nargs=argparse.REMAINDER)
     p.set_defaults(func=users)
     sub.add_parser("ingest", help="index the documents").set_defaults(func=ingest)
-    sub.add_parser("eval", help="run the evaluation set").set_defaults(func=evaluate)
+    p = sub.add_parser("eval", help="run the evaluation set (offline KPIs)")
+    p.add_argument("--judge", action="store_true", help="also score faithfulness with the LLM")
+    p.set_defaults(func=evaluate)
+    p = sub.add_parser("kpis", help="show the KPIs: live traffic and the latest eval")
+    p.add_argument("--hours", type=float, default=24, help="live window (default: 24)")
+    p.add_argument("--json", action="store_true", help="print the full report as JSON")
+    p.set_defaults(func=kpis)
     sub.add_parser("logs", help="follow API logs").set_defaults(func=logs)
     sub.add_parser("status", help="health check and URLs").set_defaults(func=status)
     p = sub.add_parser(
@@ -496,7 +514,8 @@ def main() -> None:
     p.add_argument(
         "--data",
         action="store_true",
-        help="also delete the index, Qdrant and user-account volumes and data/users.db",
+        help="also delete the index, Qdrant and user-account volumes, data/users.db and"
+        " data/metrics.db",
     )
     p.add_argument(
         "--models",

@@ -23,6 +23,8 @@ def settings(tmp_path_factory) -> Settings:
         jwt_secret="test-secret-that-is-at-least-32-bytes-long",
         users_db=tmp_path_factory.mktemp("users") / "users.db",
         password_hash_iterations=1_000,
+        metrics_db=tmp_path_factory.mktemp("metrics") / "metrics.db",
+        eval_report=tmp_path_factory.mktemp("reports") / "eval.json",
     )
 
 

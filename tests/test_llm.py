@@ -79,3 +79,13 @@ def test_ask_returns_504_when_llm_times_out(settings, service):
     )
     assert r.status_code == 504
     assert r.json()["detail"] == "The language model took too long."
+
+
+def test_ollama_reports_token_usage():
+    def handler(request):
+        body = {"message": {"content": "ok"}, "prompt_eval_count": 120, "eval_count": 8}
+        return httpx.Response(200, json=body)
+
+    text, usage = _llm(handler).chat_with_usage([{"role": "user", "content": "hi"}])
+    assert text == "ok"
+    assert (usage.prompt_tokens, usage.completion_tokens, usage.estimated) == (120, 8, False)

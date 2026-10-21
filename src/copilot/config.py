@@ -78,6 +78,29 @@ class Settings(BaseSettings):
     cache_similarity_threshold: float = 0.95
     cache_ttl_s: int = 3600
 
+    # KPI monitoring (see docs/monitoring.md). Each /ask is recorded in a SQLite file without
+    # the question or answer text. /metrics serves counts for Prometheus without a token.
+    metrics_enabled: bool = True
+    metrics_db: Path = Path("data/metrics.db")
+    metrics_retention_days: int = 30
+    eval_report: Path = Path("reports/eval.json")  # offline KPIs come from the latest eval
+    # Answers whose cited sources support at least this share of their content count as grounded.
+    grounded_threshold: float = 0.7
+    # Local cost model; there is no API bill. The default prices compute time at a ~150 W laptop
+    # and 0.15 per kWh. Set the token prices to compare with a hosted model.
+    cost_currency: str = "USD"
+    cost_per_compute_second: float = 0.00000625
+    cost_per_1k_prompt_tokens: float = 0.0
+    cost_per_1k_completion_tokens: float = 0.0
+    # Targets shown next to each KPI.
+    target_recall_at_5: float = 0.9
+    target_mrr: float = 0.75
+    target_grounded_rate: float = 0.9
+    target_faithfulness: float = 0.8
+    target_unauthorized_rate: float = 0.0
+    target_p95_ms: float = 10_000
+    target_cost_per_answer: float = 0.0001
+
 
 @lru_cache
 def get_settings() -> Settings:
