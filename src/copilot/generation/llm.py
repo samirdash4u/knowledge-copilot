@@ -15,24 +15,69 @@ class LLM(Protocol):
     def chat(self, messages: list[dict]) -> str: ...
 
 
+class LLMUnavailable(RuntimeError):
+    """The model could not produce an answer. The message is safe to show to the user."""
+
+    def __init__(self, message: str, status: int = 503) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 class OllamaLLM:
-    def __init__(self, url: str, model: str, temperature: float = 0.1, timeout: float = 120.0):
+    def __init__(
+        self,
+        url: str,
+        model: str,
+        temperature: float = 0.1,
+        timeout: float = 300.0,
+        num_ctx: int = 4096,
+        max_tokens: int = 512,
+        keep_alive: str = "30m",
+    ):
         self.url = url.rstrip("/")
         self.model = model
         self.temperature = temperature
-        self.client = httpx.Client(timeout=timeout)
+        self.timeout = timeout
+        self.num_ctx = num_ctx
+        self.max_tokens = max_tokens
+        self.keep_alive = keep_alive
+        # Fail fast when Ollama isn't running; wait patiently while it generates.
+        self.client = httpx.Client(timeout=httpx.Timeout(timeout, connect=10.0))
 
     def chat(self, messages: list[dict]) -> str:
-        resp = self.client.post(
-            f"{self.url}/api/chat",
-            json={
-                "model": self.model,
-                "messages": messages,
-                "stream": False,
-                "options": {"temperature": self.temperature, "num_ctx": 8192},
-            },
-        )
-        resp.raise_for_status()
+        try:
+            resp = self.client.post(
+                f"{self.url}/api/chat",
+                json={
+                    "model": self.model,
+                    "messages": messages,
+                    "stream": False,
+                    "keep_alive": self.keep_alive,
+                    "options": {
+                        "temperature": self.temperature,
+                        "num_ctx": self.num_ctx,
+                        "num_predict": self.max_tokens,
+                    },
+                },
+            )
+            resp.raise_for_status()
+        except httpx.ConnectError as exc:
+            raise LLMUnavailable(
+                f"The language model is not reachable at {self.url}. Check that Ollama is running."
+            ) from exc
+        except httpx.TimeoutException as exc:
+            raise LLMUnavailable(
+                f"The language model took longer than {self.timeout:.0f} seconds to answer. "
+                "It may still be loading, or running on the CPU. Try again in a minute, or raise "
+                "COPILOT_LLM_TIMEOUT_S.",
+                status=504,
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            detail = exc.response.text[:200]
+            raise LLMUnavailable(
+                f"The language model returned an error ({exc.response.status_code}): {detail}. "
+                f"Check that the model '{self.model}' is pulled (ollama list)."
+            ) from exc
         return resp.json()["message"]["content"].strip()
 
 
