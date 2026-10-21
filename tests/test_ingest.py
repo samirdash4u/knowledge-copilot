@@ -44,3 +44,10 @@ def test_split_text_respects_size():
     chunks = split_text(text, size=300, overlap=50)
     assert len(chunks) > 1
     assert all(len(c) <= 300 for c in chunks)
+
+
+def test_split_text_cuts_long_runs_without_spaces():
+    text = "intro " + "x" * 2500 + " outro"
+    chunks = split_text(text, 800, 120)
+    assert all(len(c) <= 800 for c in chunks)
+    assert "".join(chunks).count("x") >= 2500

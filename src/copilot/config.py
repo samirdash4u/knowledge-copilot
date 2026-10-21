@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     candidates_per_retriever: int = 30
     rrf_k: int = 60
     top_k: int = 6
+    # Upper bound on the source text sent to the LLM per question. Lower-ranked sources are
+    # dropped first, so a long document can't blow up the prompt (and the answer time).
+    max_context_chars: int = 6000
 
     # Backends
     embedder: Literal["hash", "sentence-transformers"] = "sentence-transformers"
@@ -62,7 +65,12 @@ class Settings(BaseSettings):
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:7b-instruct-q4_K_M"
     llm_temperature: float = 0.1
-    llm_timeout_s: float = 120.0
+    # How long to wait for an answer. A 7B model on the CPU, or one loading on the first question,
+    # can take minutes. Raise this on slow machines.
+    llm_timeout_s: float = 300.0
+    llm_num_ctx: int = 4096  # context window in tokens; smaller uses less GPU memory
+    llm_max_tokens: int = 512  # cap on the answer's length
+    llm_keep_alive: str = "30m"  # how long Ollama keeps the model loaded after a question
 
     # Cache
     cache: Literal["none", "memory", "redis"] = "redis"

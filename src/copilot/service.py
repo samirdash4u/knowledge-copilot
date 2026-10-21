@@ -10,7 +10,7 @@ from copilot.cache import AnswerCache, InMemorySemanticCache, NullCache, RedisSe
 from copilot.config import Settings
 from copilot.generation.citations import check_citations, faithfulness
 from copilot.generation.llm import LLM, EchoLLM, OllamaLLM, chat_with_usage
-from copilot.generation.prompt import REFUSAL, build_messages
+from copilot.generation.prompt import REFUSAL, build_messages, fit_context
 from copilot.ingest.pipeline import run_ingest
 from copilot.models import Answer, Chunk, Principal
 from copilot.retrieval.bm25 import BM25Index
@@ -46,7 +46,15 @@ def make_store(s: Settings) -> VectorStore:
 def make_llm(s: Settings) -> LLM:
     if s.llm == "echo":
         return EchoLLM()
-    return OllamaLLM(s.ollama_url, s.ollama_model, s.llm_temperature, s.llm_timeout_s)
+    return OllamaLLM(
+        s.ollama_url,
+        s.ollama_model,
+        s.llm_temperature,
+        s.llm_timeout_s,
+        num_ctx=s.llm_num_ctx,
+        max_tokens=s.llm_max_tokens,
+        keep_alive=s.llm_keep_alive,
+    )
 
 
 def make_cache(s: Settings, corpus_version: str) -> AnswerCache:
@@ -132,6 +140,7 @@ class CopilotService:
             # Nothing visible to this caller: refuse without calling the model at all.
             ans = Answer(text=REFUSAL, citations=[], refused=True)
         else:
+            results = fit_context(results, self.settings.max_context_chars)
             t = time.perf_counter()
             raw, usage = chat_with_usage(self.llm, build_messages(question, results))
             timings["generate"] = (time.perf_counter() - t) * 1000

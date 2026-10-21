@@ -196,11 +196,69 @@ faithfulness with the local LLM.
 
 ## KPI monitoring
 
-The same KPIs are tracked on live traffic: every question records its latency, groundedness,
-faithfulness, any unauthorized retrieval, tokens and estimated cost (no question text). Admins see
-them under **KPIs** in the web UI; `copilot kpis` (or `python scripts/manage.py kpis`) prints them,
-and `GET /metrics` serves them to Prometheus. No extra services are needed. See
-[docs/monitoring.md](docs/monitoring.md).
+Seven KPIs are tracked, on live traffic and in the eval. Nothing extra needs to be installed or
+started, so it works the same natively on Windows and in Docker.
+
+| KPI | Live | Eval | Default target |
+|---|---|---|---|
+| Recall@5 | | ✓ | ≥ 0.90 |
+| MRR | | ✓ | ≥ 0.75 |
+| Groundedness (answers supported by their cited sources) | ✓ | ✓ | ≥ 90% |
+| Faithfulness (share of each answer found in its sources) | ✓ | ✓ | ≥ 0.80 |
+| Unauthorized-document retrieval rate | ✓ | ✓ | 0% |
+| p95 latency | ✓ | ✓ | ≤ 10 s |
+| Cost per successful answer (local estimate) | ✓ | ✓ | ≤ 0.0001 USD |
+
+Live numbers come from every question asked in the web UI or through `POST /ask`. Each one is
+stored in `data/metrics.db` (`/index/metrics.db` in Docker) without the question, the answer or the
+user name. Recall@5 and MRR need known right answers, so they come only from the eval.
+
+### Monitor the KPIs
+
+1. **Fill in the eval numbers.** Run the eval after an ingest, or whenever you change the model,
+   the documents or the retrieval settings:
+
+   ```bash
+   python scripts/manage.py eval            # Docker
+   copilot eval                             # native, venv active; writes reports/eval.json
+   copilot eval --judge                     # also has the local LLM judge faithfulness (slower)
+   ```
+
+2. **Use the app.** Every question adds to the live numbers.
+
+3. **Look at the KPIs**, in any of these ways:
+
+   - **Web UI:** sign in as an admin (for example `carol`) and click **KPIs** in the header. Each
+     KPI shows its target, the live value for the window you pick (last hour, 24 hours, 7 or 30
+     days) and the eval value, marked *on target* or *off target*. Other roles don't see the button.
+   - **Command line:**
+
+     ```bash
+     python scripts/manage.py kpis            # Docker: last 24 hours plus the latest eval
+     python scripts/manage.py kpis --hours 168
+     copilot kpis                             # native
+     copilot kpis --hours 1 --json            # JSON, for scripts
+     ```
+
+   - **Prometheus (optional):** point it at `http://localhost:8000/metrics` for graphs and alerts.
+     The PromQL for each KPI is in [docs/monitoring.md](docs/monitoring.md#with-prometheus-optional).
+
+A few things to know:
+
+- **Faithfulness** live is a quick word-overlap check of each sentence against the chunks it cites
+  (an uncited sentence scores 0). An answer counts as **grounded** at 0.7 or above
+  (`COPILOT_GROUNDED_THRESHOLD`). `eval --judge` adds a stricter LLM-judged score.
+- **Unauthorized retrieval** counts a question when the access check blocked a restricted chunk,
+  a retrieved or cited chunk fails the role and tenant re-check, or a restricted `CANARY-*` token
+  shows up in the answer. Any hit is also logged as an error, and the eval fails on it.
+- **Cost** has no API bill behind it. Each question is priced as compute seconds ×
+  `COPILOT_COST_PER_COMPUTE_SECOND` (default: about 150 W at 0.15 USD/kWh) plus tokens × the
+  per-1k token prices, which default to 0. Set them to compare with a hosted model. The cost of
+  failed and refused questions is spread over the successful ones.
+- Targets, retention and the cost rates are settings in `.env`. `COPILOT_METRICS_ENABLED=false`
+  turns recording and `/metrics` off. `/metrics` needs no token and holds counts only.
+
+All the definitions and settings are in [docs/monitoring.md](docs/monitoring.md).
 
 ## Project layout
 

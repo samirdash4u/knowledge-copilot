@@ -225,3 +225,19 @@ def test_llm_judge_scores_unsupported_sentences(service):
     flagged = judge_faithfulness(FakeJudge('Sure: {"unsupported": [1]}'), ans, service.chunks_by_id)
     assert flagged == 1 - 1 / n
     assert judge_faithfulness(FakeJudge("no idea"), ans, service.chunks_by_id) is None
+
+
+def test_slow_llm_is_recorded_as_error(settings, service, tmp_path, monkeypatch):
+    from copilot.generation.llm import LLMUnavailable
+
+    client, _ = _app(settings, service, tmp_path)
+
+    def slow(*a, **k):
+        raise LLMUnavailable("too slow", status=504)
+
+    monkeypatch.setattr(service, "answer", slow)
+    r = client.post("/ask", json={"question": "anything"}, headers=_token(client, "employee"))
+    assert r.status_code == 504
+    body = client.get("/kpis", headers=_token(client, "admin")).json()
+    assert body["online"]["by_status"]["error"] == 1
+    assert body["online"]["unauthorized_rate"] == 0

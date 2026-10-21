@@ -18,6 +18,7 @@ from copilot import suggestions as suggest
 from copilot.acl import AccessViolation
 from copilot.auth import AuthError, decode_token, issue_token
 from copilot.config import Settings, get_settings
+from copilot.generation.llm import LLMUnavailable
 from copilot.metrics import Monitor, audit, record_answer, record_failure
 from copilot.models import Principal, Role
 from copilot.service import CopilotService
@@ -266,6 +267,10 @@ def create_app(
                 monitor.observe(record_failure(settings, principal, mode, "blocked", elapsed_ms()))
             # Fail closed: never return partial results after an ACL check fails.
             raise HTTPException(500, "internal access check failed") from exc
+        except LLMUnavailable as exc:
+            if monitor:
+                monitor.observe(record_failure(settings, principal, mode, "error", elapsed_ms()))
+            raise HTTPException(exc.status, str(exc)) from exc
         except Exception:
             if monitor:
                 monitor.observe(record_failure(settings, principal, mode, "error", elapsed_ms()))
