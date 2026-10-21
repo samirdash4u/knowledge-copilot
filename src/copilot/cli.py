@@ -232,17 +232,38 @@ def _cmd_tenants_add(args: argparse.Namespace) -> None:
 
 
 def _cmd_eval(args: argparse.Namespace) -> None:
-    from copilot.eval.runner import evaluate, format_table, load_questions
+    from copilot.eval.runner import evaluate, format_table, load_questions, sample_questions
     from copilot.retrieval.vector import load_chunks
     from copilot.service import CopilotService, make_llm
 
     s = get_settings()
     service = CopilotService.from_settings(s)
     questions = load_questions(Path(args.questions))
+    limit = args.limit or (10 if args.quick else None)
+    if limit:
+        questions = sample_questions(questions, limit)
     chunks = load_chunks(s.index_dir / "chunks.jsonl")
-    judge = make_llm(s) if args.judge and not args.retrieval_only else None
+    modes = args.modes.split(",")
+    if args.retrieval_only:
+        answer_modes: list[str] = []
+    elif args.answer_modes == "all":
+        answer_modes = modes
+    else:
+        answer_modes = (args.answer_modes or s.retrieval_mode).split(",")
+        modes += [m for m in answer_modes if m not in modes]
+    judge = make_llm(s) if args.judge and answer_modes else None
+    print(
+        f"{len(questions)} questions; retrieval scored in {', '.join(modes)}"
+        + (f"; LLM answers in {', '.join(answer_modes)}" if answer_modes else "")
+    )
     report = evaluate(
-        service, questions, chunks, args.modes.split(","), args.retrieval_only, judge=judge
+        service,
+        questions,
+        chunks,
+        modes,
+        judge=judge,
+        answer_modes=answer_modes,
+        progress=_eval_progress(),
     )
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -258,6 +279,41 @@ def _cmd_eval(args: argparse.Namespace) -> None:
             file=sys.stderr,
         )
         sys.exit(1)
+
+
+def _eval_progress():
+    """Print one line per LLM step with the average time per step and an estimate of the rest."""
+    import time
+
+    start = time.perf_counter()
+    first: list[float] = []
+
+    def show(done: int, total: int, label: str) -> None:
+        now = time.perf_counter()
+        if done == 1:
+            first.append(now)
+        # The first step includes loading the model, so leave it out of the average when we can.
+        if done > 1:
+            each = (now - first[0]) / (done - 1)
+        else:
+            each = now - start
+        left = each * (total - done)
+        print(
+            f"[{done}/{total}] {label:<28} {each:5.1f} s per answer, about {_duration(left)} left",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    return show
+
+
+def _duration(seconds: float) -> str:
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds} s"
+    if seconds < 3600:
+        return f"{seconds // 60} min"
+    return f"{seconds // 3600} h {seconds % 3600 // 60} min"
 
 
 def _cmd_kpis(args: argparse.Namespace) -> None:
@@ -347,8 +403,19 @@ def main(argv: list[str] | None = None) -> None:
 
     p = sub.add_parser("eval", help="run the evaluation set")
     p.add_argument("--questions", default="eval/questions.jsonl")
-    p.add_argument("--modes", default="bm25,vector,hybrid,hybrid_rerank")
+    p.add_argument(
+        "--modes",
+        default="bm25,vector,hybrid,hybrid_rerank",
+        help="modes to score on retrieval (fast, no LLM)",
+    )
+    p.add_argument(
+        "--answer-modes",
+        help="modes that also get LLM answers, comma-separated or 'all'"
+        " (default: COPILOT_RETRIEVAL_MODE). Each one adds a full set of LLM calls",
+    )
     p.add_argument("--retrieval-only", action="store_true", help="skip the LLM")
+    p.add_argument("--limit", type=int, help="use only N questions, spread over the types")
+    p.add_argument("--quick", action="store_true", help="same as --limit 10: a few minutes")
     p.add_argument("--out", default="reports/eval.json")
     p.add_argument(
         "--judge", action="store_true", help="also score faithfulness with the LLM (slower)"

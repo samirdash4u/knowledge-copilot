@@ -222,8 +222,9 @@
           <option value="168">Last 7 days</option>
           <option value="720">Last 30 days</option>
         </select>
-        <button class="btn" id="kpi-refresh">Refresh</button>
+        <button class="btn" type="button" id="kpi-refresh">Refresh</button>
       </div>
+      <div class="hint" id="kpi-updated" aria-live="polite"></div>
       <div class="kpi-table-box">
         <table class="kpi">
           <thead><tr><th>KPI</th><th>Target</th><th>Live traffic</th><th>Latest eval</th></tr></thead>
@@ -540,14 +541,23 @@
     }
     row.appendChild(td);
   }
+  let kpiLoading = false;
   async function loadKpis() {
+    if (kpiLoading) return;
+    kpiLoading = true;
+    const btn = $("kpi-refresh");
+    btn.textContent = "Refreshing…";
     $("kpi-error").textContent = "";
     let r;
     try { r = await api("/kpis?hours=" + $("kpi-hours").value); } catch (err) {
       if (err.status === 401) return signOut("Your session expired. Please sign in again.");
       $("kpi-error").textContent = "Could not load KPIs: " + err.message;
       return;
+    } finally {
+      kpiLoading = false;
+      btn.textContent = "Refresh";
     }
+    $("kpi-updated").textContent = "Updated " + new Date().toLocaleTimeString() + ". Refreshes every minute while this page is open.";
     const body = $("kpi-body");
     body.innerHTML = "";
     for (const k of r.kpis) {
@@ -575,10 +585,14 @@
     }
     note(`An answer is grounded when its cited sources support at least ${Math.round(r.grounded_threshold * 100)}% of it. Cost is a local estimate (compute time and token prices from settings).`);
   }
+  // Keep the numbers current while the KPI page is showing.
+  setInterval(() => {
+    if (me && !$("kpi-view").classList.contains("hidden")) loadKpis();
+  }, 60000);
   $("open-kpis").addEventListener("click", () => { show("kpi-view"); loadKpis(); });
   $("kpi-back").addEventListener("click", () => route());
-  $("kpi-refresh").addEventListener("click", loadKpis);
-  $("kpi-hours").addEventListener("change", loadKpis);
+  $("kpi-refresh").addEventListener("click", () => loadKpis());
+  $("kpi-hours").addEventListener("change", () => loadKpis());
 
   // Workspaces come from the corpus folders, so a tenant added later shows up without a UI change.
   async function loadTenants() {

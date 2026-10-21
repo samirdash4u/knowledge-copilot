@@ -185,14 +185,28 @@ To run the full app natively with Ollama, see path B in the [Windows](docs/insta
 | cross_tenant | 1 | asking one tenant about another tenant's documents |
 
 ```bash
-python scripts/manage.py eval   # all four retrieval modes, with the real models
+python scripts/manage.py eval           # with the real models: about 40 LLM answers
+python scripts/manage.py eval --quick   # 10 questions, one of each type: a few minutes
 ```
 
-The report gives Recall@5, recall@k, MRR, groundedness, faithfulness, unauthorized retrieval
-rate, refusal accuracy, keyword accuracy, citation coverage, leaks, p50/p95 latency and cost per
-successful answer for each of `bm25`, `vector`, `hybrid` and `hybrid_rerank`, plus a
-cache-poisoning pass. The command exits non-zero if anything leaks. Add `--judge` to also score
-faithfulness with the local LLM.
+Retrieval (Recall@5, recall@k, MRR, leaks) is scored for all four modes, `bm25`, `vector`,
+`hybrid` and `hybrid_rerank`, which takes seconds. The LLM answers each question only in the mode
+the app uses (`COPILOT_RETRIEVAL_MODE`), since the answers are what take time. Those give
+groundedness, faithfulness, refusal and keyword accuracy, citation coverage, p50/p95 latency and
+cost per successful answer. A cache-poisoning pass checks that an admin's cached answer is never
+served to a lower role. The command prints a line per answer with the time left, and exits
+non-zero if anything leaks.
+
+| Option | What it does |
+|---|---|
+| `--quick` / `--limit N` | 10 / N questions, spread over the question types |
+| `--answer-modes hybrid,bm25` or `all` | answer in more modes (each one adds a full set of LLM calls) |
+| `--judge` | also have the LLM judge faithfulness (about doubles the time) |
+| `--retrieval-only` | no LLM at all |
+
+How long a full run takes depends on where the model runs. On an 8 GB GPU a 7B model answers in
+roughly 5 to 15 seconds, so about 5 to 10 minutes. On the CPU, which is what Docker uses unless
+`COPILOT_GPU=true` is set, each answer can take a minute or more.
 
 ## KPI monitoring
 
@@ -220,6 +234,7 @@ user name. Recall@5 and MRR need known right answers, so they come only from the
 
    ```bash
    python scripts/manage.py eval            # Docker
+   python scripts/manage.py eval --quick    # 10 questions, for a fast check
    copilot eval                             # native, venv active; writes reports/eval.json
    copilot eval --judge                     # also has the local LLM judge faithfulness (slower)
    ```
