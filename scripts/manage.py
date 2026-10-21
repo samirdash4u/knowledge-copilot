@@ -294,6 +294,12 @@ def evaluate(args: argparse.Namespace) -> None:
     reports = ROOT / "reports"
     reports.mkdir(exist_ok=True)
     extra = ["--judge"] if args.judge else []
+    if args.quick:
+        extra.append("--quick")
+    if args.limit:
+        extra += ["--limit", str(args.limit)]
+    if args.answer_modes:
+        extra += ["--answer-modes", args.answer_modes]
     run(
         compose_cmd()
         + ["run", "--rm", "-v", f"{reports}:/app/reports", "api", "copilot", "eval", *extra]
@@ -496,6 +502,11 @@ def main() -> None:
     sub.add_parser("ingest", help="index the documents").set_defaults(func=ingest)
     p = sub.add_parser("eval", help="run the evaluation set (offline KPIs)")
     p.add_argument("--judge", action="store_true", help="also score faithfulness with the LLM")
+    p.add_argument("--quick", action="store_true", help="10 questions: a few minutes")
+    p.add_argument("--limit", type=int, help="use only N questions")
+    p.add_argument(
+        "--answer-modes", help="modes that get LLM answers, or 'all' (default: the configured one)"
+    )
     p.set_defaults(func=evaluate)
     p = sub.add_parser("kpis", help="show the KPIs: live traffic and the latest eval")
     p.add_argument("--hours", type=float, default=24, help="live window (default: 24)")

@@ -96,10 +96,16 @@ Example:
 
 ```powershell
 copilot eval                       # natively; writes reports/eval.json
+copilot eval --quick               # 10 questions, one of each type: a few minutes
 copilot eval --judge               # also scores faithfulness with the LLM (slower)
-python scripts/manage.py eval      # with Docker
-python scripts/manage.py eval --judge
+python scripts/manage.py eval      # with Docker (takes the same options)
+python scripts/manage.py eval --quick
 ```
+
+The LLM answers each question once, in `COPILOT_RETRIEVAL_MODE`. The other modes are scored on
+retrieval only, which takes seconds. Each answer prints a progress line with the time left. With
+the model on an 8 GB GPU a full run takes roughly 5 to 10 minutes; on the CPU (Docker without
+`COPILOT_GPU=true`) it can take 40 minutes or more, so start with `--quick`.
 
 The KPI view reads the mode set in `COPILOT_RETRIEVAL_MODE` (default `hybrid_rerank`) from the
 report, or the last mode in it. The running server picks up a new report straight away; no restart

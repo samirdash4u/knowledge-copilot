@@ -6,8 +6,9 @@ Metrics, per retrieval mode:
 - keyword accuracy: does the answer contain the expected facts? (needs an LLM)
 - citation coverage: share of answer sentences that carry a valid citation (needs an LLM)
 - leaks: restricted "canary" strings that reached a caller who may not see them, in retrieved
-  context or in the answer. Includes a cache-poisoning pass: every restricted question is asked
-  by an admin first, then by the lower role, with the cache on. The target is zero.
+  context or in the answer. Includes a cache-poisoning pass: an admin answer holding restricted
+  canaries is cached for each lower-role question, then looked up as the lower role. The target
+  is zero.
 - unauthorized rate: share of questions where a chunk the caller may not see was retrieved or a
   canary leaked. The target is zero.
 - groundedness / faithfulness: share of answers supported by their cited sources, and the mean
@@ -20,6 +21,7 @@ from __future__ import annotations
 
 import json
 import statistics
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -33,7 +35,7 @@ from copilot.generation.prompt import REFUSAL
 from copilot.metrics import is_grounded, percentile, request_cost
 from copilot.models import Answer, Chunk, Principal, Role
 from copilot.retrieval.hybrid import MODES
-from copilot.service import CopilotService
+from copilot.service import CopilotService, make_cache
 
 
 @dataclass
@@ -66,6 +68,21 @@ def load_questions(path: Path) -> list[Question]:
         return [Question.from_dict(json.loads(line)) for line in f if line.strip()]
 
 
+def sample_questions(questions: list[Question], n: int) -> list[Question]:
+    """``n`` questions spread over the question types, so a short run still covers each kind."""
+    if n >= len(questions):
+        return questions
+    by_type: dict[str, list[Question]] = {}
+    for q in questions:
+        by_type.setdefault(q.type, []).append(q)
+    picked: list[Question] = []
+    while len(picked) < n:
+        for group in by_type.values():
+            if group and len(picked) < n:
+                picked.append(group.pop(0))
+    return sorted(picked, key=questions.index)
+
+
 def evaluate(
     service: CopilotService,
     questions: list[Question],
@@ -73,8 +90,27 @@ def evaluate(
     modes: list[str],
     retrieval_only: bool = False,
     judge: LLM | None = None,
+    answer_modes: list[str] | None = None,
+    progress: Callable[[int, int, str], None] | None = None,
 ) -> dict:
+    """Score every mode on retrieval. Only ``answer_modes`` (default: all of ``modes``) also get
+    LLM answers, since those dominate the run time. ``progress(done, total, label)`` is called
+    after each LLM-backed step."""
     s = service.settings
+    if answer_modes is None:
+        answer_modes = [] if retrieval_only else list(modes)
+    for mode in [*modes, *answer_modes]:
+        if mode not in MODES:
+            raise ValueError(f"unknown mode {mode}")
+    total = len(questions) * sum(m in answer_modes for m in modes)
+    done = 0
+
+    def step(label: str) -> None:
+        nonlocal done
+        done += 1
+        if progress:
+            progress(done, total, label)
+
     k = s.top_k
     depth = max(k, 5)  # Recall@5 is a KPI even when top_k is smaller
     report: dict = {
@@ -86,8 +122,7 @@ def evaluate(
     }
 
     for mode in modes:
-        if mode not in MODES:
-            raise ValueError(f"unknown mode {mode}")
+        answering = mode in answer_modes
         hits, hits5, rr, leaks, unauthorized = [], [], [], 0, 0
         refusal_ok, keyword_ok, coverage, latencies = [], [], [], []
         faith, faith_judge, grounded = [], [], []
@@ -115,7 +150,7 @@ def evaluate(
                 rr.append(1 / rank if rank and rank <= k else 0.0)
                 row["gold_rank"] = rank
 
-            if not retrieval_only:
+            if answering:
                 try:
                     ans = service.answer(p, q.question, mode=mode, use_cache=False)
                 except AccessViolation:
@@ -167,6 +202,7 @@ def evaluate(
                     grounded=is_grounded_,
                     success=success,
                 )
+                step(f"{mode} {q.id}")
 
             if leaked:
                 leaks += len(leaked)
@@ -195,29 +231,41 @@ def evaluate(
             "unauthorized_rate": round(unauthorized / len(questions), 4) if questions else None,
             "p50_ms": round(statistics.median(latencies), 1) if latencies else None,
             "p95_ms": round(percentile(latencies, 95), 1) if latencies else None,
-            "success_rate": None if retrieval_only else mean([r["success"] for r in per_q]),
+            "answered": answering,
+            "success_rate": mean([r["success"] for r in per_q]) if answering else None,
             "cost_per_success": round(cost / successes, 8) if successes else None,
             "per_question": per_q,
         }
 
-    if not retrieval_only:
-        report["cache_poisoning_leaks"] = cache_poisoning_test(service, questions, all_chunks)
+    report["cache_poisoning_leaks"] = cache_poisoning_test(service, questions, all_chunks)
     return report
 
 
 def cache_poisoning_test(
     service: CopilotService, questions: list[Question], all_chunks: list[Chunk]
 ) -> int:
-    """Ask each lower-role question as admin first (warming the cache), then as the real role."""
+    """Plant an admin answer full of restricted canaries, then look it up as the real role.
+
+    For every lower-role question, an answer holding every canary that role may not see is
+    cached under an admin, and the cache is then asked for the same question as the lower role.
+    Any hit is a leak. This exercises the configured cache backend (memory or Redis) without
+    calling the LLM. Entries go into a separate eval partition, so real users never see them.
+    """
+    cache = make_cache(service.settings, f"{service.corpus_version}:eval-poisoning")
     leaks = 0
     for q in questions:
         if q.role == Role.ADMIN:
             continue
         admin = Principal(user_id="eval-admin", role=Role.ADMIN, tenant=q.tenant)
         user = Principal(user_id=f"eval-{q.role.label}", role=q.role, tenant=q.tenant)
-        service.answer(admin, q.question, use_cache=True)
-        ans = service.answer(user, q.question, use_cache=True)
-        leaks += len(_leaks(ans.text, forbidden_canaries(all_chunks, user)))
+        forbidden = forbidden_canaries(all_chunks, user)
+        if not forbidden:
+            continue
+        qvec = service.retriever.embedder.embed_query(q.question)
+        cache.put(admin, qvec, Answer(text=" ".join(sorted(forbidden)), citations=[]))
+        hit = cache.get(user, qvec)
+        if hit is not None:
+            leaks += max(1, len(_leaks(hit.text, forbidden)))
     return leaks
 
 
@@ -237,6 +285,8 @@ def format_table(report: dict) -> str:
     ]
     lines = ["| mode | " + " | ".join(cols) + " |", "|---" * (len(cols) + 1) + "|"]
     for mode, m in report["modes"].items():
+        if m.get("answered") is False:
+            mode += " (retrieval only)"
         cells = ["–" if m.get(c) is None else str(m[c]) for c in cols]
         lines.append(f"| {mode} | " + " | ".join(cells) + " |")
     if any(m.get("faithfulness_judge") is not None for m in report["modes"].values()):
