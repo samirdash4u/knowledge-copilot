@@ -131,8 +131,9 @@ python3 scripts/manage.py ingest        # downloads embedding models on first ru
 python3 scripts/manage.py status        # prints the URLs to open
 ```
 
-If you have `make`, `make up`, `make up-gpu`, `make pull-model`, `make ingest` and `make status`
-run the same commands. The containers restart automatically after a reboot as long as the Docker
+Only `up` is required: the model download and ingest are also buttons under **Admin > Status** in
+the web UI ([admin-console.md](admin-console.md)). If you have `make`, `make up`, `make up-gpu`,
+`make pull-model`, `make ingest` and `make status` run the same commands. The containers restart automatically after a reboot as long as the Docker
 service is enabled. Other commands:
 
 ```bash
@@ -235,6 +236,10 @@ set a new password. To add accounts:
 docker compose exec api copilot users add dave --role manager   # path A
 copilot users add dave --role manager                            # path B, venv active
 ```
+
+Everything after starting the server can be done in the browser: as an admin, open **Admin >
+Status** to download the model and run ingest, and use the other tabs for documents, tenants,
+users and the evaluation. See [admin-console.md](admin-console.md).
 
 To watch quality, safety, speed and cost (Recall@5, MRR, groundedness, faithfulness,
 unauthorized retrieval rate, p95 latency, cost per answer), sign in as an admin such as `carol` and

@@ -6,6 +6,14 @@ stores them in the search index; at question time the copilot retrieves the chun
 allowed to see and the model answers from those, with citations. A new document is searchable as
 soon as it is ingested.
 
+## Easiest: upload in the browser
+
+Click **Documents** in the web UI, choose the workspace and who may see the document, pick a PDF,
+Word, Markdown or text file and click **Upload**, with **Index it straight away** ticked. Everyone
+can do this for the workspaces they use, but only for documents their own role can see; admins
+can also create tenants there (**Admin > Tenants**). See [admin-console.md](admin-console.md). The
+rest of this page is the command-line way, and explains the tags the upload writes for you.
+
 ## Docker or not: which commands to use
 
 Use the commands for the way you started the copilot. Each step below has both.

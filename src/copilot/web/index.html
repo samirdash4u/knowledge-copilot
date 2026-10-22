@@ -128,6 +128,48 @@
   .status.miss { background: var(--warn-bg); color: var(--warn-text); }
   .kpi-notes { color: var(--muted); font-size: 13px; margin-top: 12px; }
   .kpi-notes p { margin: 4px 0; }
+  /* Manage: documents and admin console */
+  .manage-wrap { max-width: 1000px; margin: 0 auto; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+  .tabs button { border: 1px solid var(--border); background: var(--panel); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+  .tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .box { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); padding: 16px; margin-bottom: 16px; }
+  .box h3 { font-size: 16px; margin: 0 0 10px; }
+  .box h3 + .hint { margin: -6px 0 10px; }
+  .grid-box { overflow-x: auto; }
+  table.grid { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.grid th, table.grid td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.grid tr:last-child td { border-bottom: 0; }
+  table.grid th { font-size: 12px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+  table.grid td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  table.grid input, table.grid select { padding: 5px 8px; }
+  .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0 14px; }
+  .checks { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; }
+  .checks label { display: inline-flex; align-items: center; gap: 6px; font-weight: 400; margin: 0; font-size: 14px; }
+  .checks input { width: auto; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
+  .btn.small { padding: 4px 10px; font-size: 13px; }
+  .btn.danger { color: var(--danger); }
+  .pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+  .pill.ok { background: var(--ok-bg); color: var(--ok-text); }
+  .pill.warn { background: var(--warn-bg); color: var(--warn-text); }
+  .pill.bad { background: var(--warn-bg); color: var(--danger); }
+  .pill.info { background: var(--chip); color: var(--chip-text); }
+  .job { border-top: 1px solid var(--border); padding: 10px 0; }
+  .job:first-of-type { border-top: 0; padding-top: 0; }
+  .job .line { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .job .label { font-weight: 600; margin-right: auto; }
+  .job .msg-line { color: var(--muted); font-size: 13px; margin-top: 4px; overflow-wrap: anywhere; }
+  .bar { height: 8px; background: var(--chip); border-radius: 999px; overflow: hidden; margin-top: 6px; }
+  .bar > div { height: 100%; background: var(--accent); width: 0; transition: width .4s; }
+  .bar.indeterminate > div { width: 30%; animation: slide 1.2s infinite ease-in-out; }
+  @keyframes slide { from { margin-left: -30%; } to { margin-left: 100%; } }
+  pre.log { font-size: 12px; max-height: 220px; overflow: auto; background: var(--bg); border-radius: 8px; padding: 8px; white-space: pre-wrap; margin: 6px 0 0; }
+  .comp { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+  .comp > div { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .comp .name { font-weight: 600; display: flex; justify-content: space-between; gap: 8px; }
+  .comp .detail { color: var(--muted); font-size: 13px; margin-top: 4px; overflow-wrap: anywhere; }
+  .ok-msg { color: var(--ok-text); font-size: 14px; margin-top: 12px; min-height: 1em; }
   @media (max-width: 600px) {
     header { flex-wrap: wrap; gap: 8px; }
     header .btn { padding: 6px 10px; font-size: 14px; }
@@ -185,6 +227,8 @@
     <span class="who" id="who"></span>
     <span class="badge" id="role-badge"></span>
     <select id="tenant-select" aria-label="Workspace"></select>
+    <button class="btn" id="open-docs">Documents</button>
+    <button class="btn hidden" id="open-admin">Admin</button>
     <button class="btn hidden" id="open-kpis">KPIs</button>
     <button class="btn" id="open-password">Change password</button>
     <button class="btn" id="logout">Sign out</button>
@@ -237,6 +281,25 @@
   </main>
 </section>
 
+<!-- Documents (everyone) and admin console (admins) -->
+<section id="manage-view" class="app hidden">
+  <header>
+    <span class="brand" id="manage-title">Knowledge Copilot · Documents</span>
+    <span class="badge" id="manage-role"></span>
+    <button class="btn" id="manage-back">Back to chat</button>
+  </header>
+  <main>
+    <div class="manage-wrap">
+      <nav class="tabs" id="tabs" role="tablist"></nav>
+      <div class="box hidden" id="jobs-box">
+        <h3>Background jobs</h3>
+        <div id="jobs-list" aria-live="polite"></div>
+      </div>
+      <div id="tab-body"></div>
+    </div>
+  </main>
+</section>
+
 <div class="toast hidden" id="toast" role="status"></div>
 
 <script>
@@ -254,11 +317,12 @@
     clear() { try { sessionStorage.removeItem(TOKEN_KEY); } catch {} },
   };
 
-  async function api(path, { method = "GET", body, auth = true } = {}) {
-    const headers = { "Content-Type": "application/json" };
+  async function api(path, { method = "GET", body, raw, auth = true } = {}) {
+    // raw: a File sent as the request body (document upload)
+    const headers = { "Content-Type": raw ? "application/octet-stream" : "application/json" };
     const token = store.get();
     if (auth && token) headers.Authorization = "Bearer " + token;
-    const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    const res = await fetch(path, { method, headers, body: raw || (body ? JSON.stringify(body) : undefined) });
     let data = null;
     try { data = await res.json(); } catch {}
     if (!res.ok) {
@@ -272,7 +336,7 @@
   }
 
   function show(view) {
-    for (const id of ["login-view", "password-view", "chat-view", "kpi-view"]) $(id).classList.toggle("hidden", id !== view);
+    for (const id of ["login-view", "password-view", "chat-view", "kpi-view", "manage-view"]) $(id).classList.toggle("hidden", id !== view);
   }
 
   function startSession(session) {
@@ -351,6 +415,7 @@
     $("who").textContent = me.username;
     $("role-badge").textContent = me.role;
     $("open-kpis").classList.toggle("hidden", me.role !== "admin");
+    $("open-admin").classList.toggle("hidden", me.role !== "admin");
     const sel = $("tenant-select");
     sel.innerHTML = "";
     for (const t of me.tenants) {
@@ -581,7 +646,7 @@
     if (r.offline) {
       note(`Eval: ${r.offline.questions} questions, mode ${r.offline.mode}, run ${r.offline.generated_at}.`);
     } else {
-      note("Eval: no report yet. Run the eval to fill in Recall@5 and MRR.");
+      note("Eval: no report yet. Run it from Admin > Evaluation to fill in Recall@5 and MRR.");
     }
     note(`An answer is grounded when its cited sources support at least ${Math.round(r.grounded_threshold * 100)}% of it. Cost is a local estimate (compute time and token prices from settings).`);
   }
@@ -593,6 +658,485 @@
   $("kpi-back").addEventListener("click", () => route());
   $("kpi-refresh").addEventListener("click", () => loadKpis());
   $("kpi-hours").addEventListener("change", () => loadKpis());
+
+  // ---------- Documents and admin console ----------
+  // Every check here is repeated on the server; the page only hides what the role can't use.
+  const ROLES = ["employee", "manager", "admin"];
+  const TABS = [
+    { id: "documents", label: "Documents", admin: false },
+    { id: "status", label: "Status", admin: true },
+    { id: "tenants", label: "Tenants", admin: true },
+    { id: "users", label: "Users", admin: true },
+    { id: "eval", label: "Evaluation", admin: true },
+  ];
+  let tab = "documents";
+  let docsTenant = null;
+  let jobsTimer = null;
+  let lastJobs = [];
+  let refreshDocs = null;  // reloads the document list without clearing the upload form
+  const watched = new Set();  // jobs started from this page; they may finish before the next poll
+
+  function el(tag, attrs = {}, ...children) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v === undefined || v === null || v === false) continue;
+      if (k === "class") n.className = v;
+      else if (k === "text") n.textContent = v;
+      else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+      else if (v === true) { n.setAttribute(k, ""); if (k in n) n[k] = true; }  // also the default, for form.reset()
+      else if (k in n && typeof v !== "string") n[k] = v;
+      else n.setAttribute(k, v === true ? "" : v);
+    }
+    for (const c of children.flat()) if (c !== null && c !== undefined && c !== false) n.append(c instanceof Node ? c : String(c));
+    return n;
+  }
+  const isAdmin = () => me && me.role === "admin";
+  const when = (ts) => ts ? new Date(ts * 1000).toLocaleString() : "–";
+  function duration(sec) {
+    sec = Math.max(0, Math.round(sec));
+    if (sec < 60) return sec + " s";
+    if (sec < 3600) return Math.round(sec / 60) + " min";
+    return Math.floor(sec / 3600) + " h " + Math.round((sec % 3600) / 60) + " min";
+  }
+  function fail(err, box) {
+    if (err.status === 401) { signOut("Your session expired. Please sign in again."); return; }
+    if (err.status === 403 && /password change/i.test(err.message)) { openPassword(true); return; }
+    if (box) box.textContent = err.message; else toast(err.message);
+  }
+  function checks(name, options, selected = []) {
+    return el("div", { class: "checks" }, options.map((o) => {
+      const value = typeof o === "string" ? o : o.value;
+      const label = typeof o === "string" ? o : o.label;
+      return el("label", {}, el("input", { type: "checkbox", name, value, checked: selected.includes(value) }), label);
+    }));
+  }
+  const checked = (root, name) => [...root.querySelectorAll(`input[name="${name}"]:checked`)].map((i) => i.value);
+  function select(options, value) {
+    return el("select", {}, options.map((o) => el("option", { value: o, selected: o === value }, o)));
+  }
+
+  function openManage(which) {
+    tab = which;
+    $("manage-title").textContent = "Knowledge Copilot · " + (which === "documents" ? "Documents" : "Admin");
+    $("manage-role").textContent = me.role;
+    show("manage-view");
+    renderTabs();
+    loadJobs();
+    renderTab();
+  }
+  $("open-docs").addEventListener("click", () => openManage("documents"));
+  $("open-admin").addEventListener("click", () => openManage("status"));
+  $("manage-back").addEventListener("click", () => { clearTimeout(jobsTimer); route(); });
+
+  function renderTabs() {
+    const nav = $("tabs");
+    nav.innerHTML = "";
+    const visible = TABS.filter((t) => !t.admin || isAdmin());
+    nav.classList.toggle("hidden", visible.length < 2);
+    for (const t of visible) {
+      nav.append(el("button", {
+        type: "button", role: "tab", "aria-selected": String(t.id === tab), text: t.label,
+        onclick: () => { tab = t.id; renderTabs(); renderJobs(lastJobs); renderTab(); },
+      }));
+    }
+  }
+  function renderTab() {
+    refreshDocs = null;
+    const body = $("tab-body");
+    body.innerHTML = "";
+    ({ documents: renderDocuments, status: renderStatus, tenants: renderTenants, users: renderUsers, eval: renderEval })[tab](body);
+  }
+  const manageOpen = () => me && !$("manage-view").classList.contains("hidden");
+
+  // ---------- jobs ----------
+  async function loadJobs() {
+    clearTimeout(jobsTimer);
+    if (!manageOpen()) return;
+    let list;
+    try { list = await api("/jobs"); } catch (err) { return fail(err); }
+    for (const j of lastJobs) if (j.status === "queued" || j.status === "running") watched.add(j.id);
+    lastJobs = list;
+    renderJobs(list);
+    // A job that just finished changes what the open tab shows.
+    const finished = list.filter((j) => watched.has(j.id) && !["queued", "running"].includes(j.status));
+    for (const j of finished) {
+      watched.delete(j.id);
+      toast(`${j.label}: ${j.status === "succeeded" ? "done" : j.status}`);
+      if (j.kind === "ingest" && tab === "documents" && refreshDocs) refreshDocs();
+      if (j.kind === "ingest" && tab === "status") renderTab();
+      if (j.kind === "eval" && ["eval", "status"].includes(tab)) renderTab();
+      if (j.kind === "pull-model" && tab === "status") renderTab();
+    }
+    const active = list.some((j) => j.status === "queued" || j.status === "running");
+    jobsTimer = setTimeout(loadJobs, active ? 2000 : 15000);
+  }
+  function renderJobs(list) {
+    // The status tab lists the latest jobs; other tabs only what is running or just finished.
+    const recent = list.filter((j) => tab === "status" || j.status === "queued" || j.status === "running" || Date.now() / 1000 - (j.finished_at || 0) < 600).slice(0, 6);
+    $("jobs-box").classList.toggle("hidden", !recent.length);
+    const box = $("jobs-list");
+    box.innerHTML = "";
+    for (const j of recent) box.append(jobRow(j));
+  }
+  function jobRow(j) {
+    const running = j.status === "running";
+    const pill = { queued: "info", running: "info", succeeded: "ok", failed: "bad", cancelled: "warn" }[j.status];
+    const row = el("div", { class: "job" });
+    const line = el("div", { class: "line" },
+      el("span", { class: "label", text: j.label }),
+      el("span", { class: "pill " + pill, text: j.status }),
+      el("span", { class: "hint", style: "margin:0", text: "by " + j.started_by }));
+    const mine = isAdmin() || j.started_by === me.username;
+    if ((running || j.status === "queued") && mine && !j.cancel_requested) {
+      line.append(el("button", { class: "btn small", type: "button", text: "Cancel", onclick: async () => {
+        try { await api(`/jobs/${j.id}/cancel`, { method: "POST" }); loadJobs(); } catch (err) { fail(err); }
+      } }));
+    }
+    row.append(line);
+    if (running) {
+      const pct = j.total ? Math.min(100, (100 * j.done) / j.total) : null;
+      const bar = el("div", { class: "bar" + (pct === null ? " indeterminate" : "") }, el("div"));
+      if (pct !== null) bar.firstChild.style.width = pct + "%";
+      row.append(bar);
+    }
+    let text = j.message || "";
+    if (running && j.total && j.kind !== "pull-model") text += ` · ${j.done} of ${j.total}`;
+    if (running && j.total && j.kind === "pull-model") text += ` · ${(j.done / 1e9).toFixed(2)} of ${(j.total / 1e9).toFixed(2)} GB`;
+    if (running && j.total && j.done > 0 && j.started_at) {
+      const elapsed = Date.now() / 1000 - j.started_at;
+      text += ` · about ${duration((elapsed / j.done) * (j.total - j.done))} left`;
+    }
+    if (!running && j.finished_at && j.started_at) text += ` · took ${duration(j.finished_at - j.started_at)}`;
+    row.append(el("div", { class: "msg-line", text }));
+    if (j.log && j.log.length) {
+      row.append(el("details", {}, el("summary", { class: "hint", text: "Log" }), el("pre", { class: "log", text: j.log.join("\n") })));
+    }
+    return row;
+  }
+  async function startIngest() {
+    try {
+      const job = await api("/jobs/ingest", { method: "POST" });
+      watched.add(job.id);
+      toast(job.created === false ? "An ingest is already waiting to run; it will include your changes." : "Ingest started.");
+      loadJobs();
+    } catch (err) { fail(err); }
+  }
+
+  // ---------- Documents ----------
+  async function renderDocuments(body) {
+    docsTenant = me.tenants.includes(docsTenant) ? docsTenant : me.tenant;
+    const tenantSel = el("select", { onchange: (e) => { docsTenant = e.target.value; renderTab(); } },
+      me.tenants.map((t) => el("option", { value: t, selected: t === docsTenant, text: TENANT_LABELS[t] || t })));
+    const pendingBox = el("div");
+    const listBox = el("div", { class: "grid-box" }, el("div", { class: "hint", text: "Loading…" }));
+    const roleSel = el("select", { id: "up-role" });
+    const typesHint = el("div", { class: "hint" });
+    const err = el("div", { class: "error", role: "alert" });
+    const ok = el("div", { class: "ok-msg", role: "status" });
+    const file = el("input", { type: "file", id: "up-file", required: true });
+    const form = el("form", { class: "box" },
+      el("h3", { text: "Upload a document" }),
+      el("div", { class: "hint", text: "PDF and Word files are converted to text with their headings kept, so answers can cite each section. You can only choose a minimum role up to your own." }),
+      el("div", { class: "form-grid" },
+        el("div", {}, el("label", { for: "up-tenant", text: "Workspace" }), tenantSel),
+        el("div", {}, el("label", { for: "up-role", text: "Who may see it (minimum role)" }), roleSel)),
+      el("label", { for: "up-file", text: "File" }), file, typesHint,
+      el("div", { class: "form-grid" },
+        el("div", {}, el("label", { for: "up-title", text: "Title (optional)" }), el("input", { id: "up-title", maxlength: 200 })),
+        el("div", {}, el("label", { for: "up-docid", text: "Document id (optional)" }), el("input", { id: "up-docid", maxlength: 80, placeholder: "from the file name" }))),
+      el("div", { class: "checks", style: "margin-top:12px" },
+        el("label", {}, el("input", { type: "checkbox", id: "up-index", checked: true }), "Index it straight away"),
+        el("label", {}, el("input", { type: "checkbox", id: "up-suggest", checked: true }), "Add suggested questions"),
+        el("label", {}, el("input", { type: "checkbox", id: "up-overwrite" }), "Replace a document with the same id")),
+      el("div", { class: "actions" }, el("button", { class: "btn primary", type: "submit", text: "Upload" })),
+      err, ok);
+    tenantSel.id = "up-tenant";
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      err.textContent = ""; ok.textContent = "";
+      const f = file.files[0];
+      if (!f) return;
+      const params = new URLSearchParams({
+        tenant: docsTenant, min_role: roleSel.value, filename: f.name,
+        title: $("up-title").value.trim(), doc_id: $("up-docid").value.trim(),
+        overwrite: $("up-overwrite").checked, suggest: $("up-suggest").checked, index: $("up-index").checked,
+      });
+      for (const k of ["title", "doc_id"]) if (!params.get(k)) params.delete(k);
+      const btn = e.submitter; btn.disabled = true; btn.textContent = "Uploading…";
+      try {
+        const r = await api("/documents?" + params, { method: "POST", raw: f });
+        ok.textContent = `Added "${r.title}" (${r.sections} section${r.sections === 1 ? "" : "s"}, visible to ${r.min_role} and above).` +
+          ($("up-index").checked ? " Indexing has been queued; it can be asked about once the ingest job finishes." : " Run ingest to make it searchable.");
+        form.reset(); roleSel.value = r.min_role;
+        for (const j of r.jobs) watched.add(j.id);
+        loadDocs(); loadJobs();
+      } catch (e2) { fail(e2, err); }
+      finally { btn.disabled = false; btn.textContent = "Upload"; }
+    });
+    body.append(form,
+      el("div", { class: "box" },
+        el("h3", { text: "Documents in this workspace" }),
+        el("div", { class: "hint", text: "Only documents your role can see are listed." }),
+        pendingBox, listBox));
+
+    async function loadDocs() {
+      let r;
+      try { r = await api("/documents?tenant=" + encodeURIComponent(docsTenant)); } catch (e) { return fail(e, err); }
+      const prev = roleSel.value;
+      roleSel.innerHTML = "";
+      for (const role of r.upload_roles) roleSel.append(el("option", { value: role, text: role, selected: role === (prev || "employee") }));
+      file.accept = r.upload_types.join(",");
+      typesHint.textContent = `${r.upload_types.join(", ")}; up to ${r.max_upload_mb} MB.`;
+      pendingBox.innerHTML = "";
+      const running = r.active_ingest.length > 0;
+      if (r.pending || running) {
+        pendingBox.append(el("div", { class: "notice" },
+          running ? "An ingest is running or waiting. " : "",
+          r.pending ? `${r.pending} change(s) not indexed yet. ` : "",
+          el("button", { class: "btn small", type: "button", text: "Run ingest now", onclick: startIngest })));
+      } else if (!r.index_built_at) {
+        pendingBox.append(el("div", { class: "notice" }, "Nothing is indexed yet. ",
+          el("button", { class: "btn small", type: "button", text: "Run ingest", onclick: startIngest })));
+      } else {
+        pendingBox.append(el("div", { class: "actions", style: "margin:0 0 10px" },
+          el("span", { class: "hint", style: "margin:0", text: "Index is up to date (built " + when(r.index_built_at) + "). " }),
+          el("button", { class: "btn small", type: "button", text: "Re-index", onclick: startIngest })));
+      }
+      listBox.innerHTML = "";
+      if (!r.documents.length) { listBox.append(el("div", { class: "hint", text: "No documents yet." })); return; }
+      const rows = r.documents.map((d) => el("tr", {},
+        el("td", {}, el("div", { text: d.title }), el("div", { class: "hint", style: "margin:0", text: d.file })),
+        el("td", { text: d.min_role }),
+        el("td", { class: "num", text: d.sections }),
+        el("td", { class: "num", text: when(d.updated_at) }),
+        el("td", {}, el("span", { class: "pill " + (d.indexed ? "ok" : "warn"), text: d.indexed ? "indexed" : "waiting for ingest" })),
+        isAdmin() ? el("td", {}, el("button", { class: "btn small danger", type: "button", text: "Delete", onclick: async () => {
+          if (!confirm(`Delete "${d.title}" from ${docsTenant}? The file is removed from data/corpus. Run ingest afterwards.`)) return;
+          try { await api(`/documents/${encodeURIComponent(docsTenant)}/${encodeURIComponent(d.doc_id)}`, { method: "DELETE" }); toast("Deleted. Run ingest to update the index."); loadDocs(); } catch (e2) { fail(e2, err); }
+        } })) : null));
+      listBox.append(el("table", { class: "grid" },
+        el("thead", {}, el("tr", {}, ["Document", "Min role", "Sections", "Updated", "Index", isAdmin() ? "" : null].filter((h) => h !== null).map((h) => el("th", { text: h })))),
+        el("tbody", {}, rows)));
+    }
+    refreshDocs = loadDocs;
+    loadDocs();
+  }
+
+  // ---------- Status (admins) ----------
+  async function renderStatus(body) {
+    const err = el("div", { class: "error", role: "alert" });
+    body.append(el("div", { class: "hint", text: "Loading…" }), err);
+    let r;
+    try { r = await api("/admin/status"); } catch (e) { return fail(e, err); }
+    body.innerHTML = "";
+    const idx = r.index;
+    const pull = el("button", { class: "btn", type: "button", text: "Download model", onclick: async () => {
+      try { watched.add((await api("/jobs/pull-model", { method: "POST" })).id); toast("Model download started."); loadJobs(); } catch (e) { fail(e, err); }
+    } });
+    body.append(
+      el("div", { class: "box" },
+        el("h3", { text: "Services" }),
+        el("div", { class: "comp" }, r.components.map((c) => el("div", {},
+          el("div", { class: "name" }, c.name, el("span", { class: "pill " + (c.ok ? "ok" : "bad"), text: c.ok ? "ok" : "problem" })),
+          el("div", { class: "detail", text: c.detail })))),
+        r.can_pull_model ? el("div", { class: "actions" }, pull,
+          el("span", { class: "hint", style: "margin:0", text: `Downloads ${r.settings.llm} into Ollama (about 5 GB, the first time only).` })) : null),
+      el("div", { class: "box" },
+        el("h3", { text: "Index" }),
+        el("div", {}, idx.built
+          ? `${idx.documents} documents, ${idx.chunks} chunks, built ${when(idx.built_at)}.`
+          : "Not built yet. Run ingest to index the documents."),
+        el("div", { class: "hint", text: Object.entries(idx.by_tenant).map(([t, n]) => `${TENANT_LABELS[t] || t}: ${n} chunks`).join(" · ") }),
+        idx.pending_count
+          ? el("div", { class: "notice", style: "margin-top:10px" }, `${idx.pending_count} change(s) waiting for ingest: `, idx.pending.join(", "))
+          : (idx.built ? el("div", { class: "ok-msg", text: "Up to date with data/corpus." }) : null),
+        el("div", { class: "actions" }, el("button", { class: "btn primary", type: "button", text: "Run ingest", onclick: startIngest }))),
+      el("div", { class: "box grid-box" },
+        el("h3", { text: "Settings" }),
+        el("div", { class: "hint", text: "Read from .env / COPILOT_* variables; change them there and restart." }),
+        el("table", { class: "grid" }, el("tbody", {},
+          Object.entries({ ...r.settings, users: r.users, tenants: r.tenants,
+            "latest eval": r.eval ? `${r.eval.questions} questions, ${r.eval.generated_at}` : "none yet" })
+            .map(([k, v]) => el("tr", {}, el("th", { text: k.replace(/_/g, " ") }), el("td", { text: String(v) })))))),
+      err);
+  }
+
+  // ---------- Tenants (admins) ----------
+  async function renderTenants(body) {
+    const err = el("div", { class: "error", role: "alert" });
+    let tenants, users;
+    try { [tenants, users] = await Promise.all([api("/admin/tenants"), api("/admin/users")]); } catch (e) { body.append(err); return fail(e, err); }
+    const rows = tenants.map((t) => {
+      const label = el("input", { value: t.label, maxlength: 80, "aria-label": "Label" });
+      const roles = checks("roles-" + t.name, ROLES, t.roles);
+      return el("tr", {},
+        el("td", {}, el("strong", { text: t.name })),
+        el("td", {}, label),
+        el("td", { class: "num", text: t.documents }),
+        el("td", {}, roles),
+        el("td", { text: t.users.join(", ") || "–" }),
+        el("td", {}, el("button", { class: "btn small", type: "button", text: "Save", onclick: async () => {
+          err.textContent = "";
+          try {
+            await api("/admin/tenants/" + encodeURIComponent(t.name), { method: "PATCH", body: { label: label.value, roles: checked(roles, "roles-" + t.name) } });
+            TENANT_LABELS[t.name] = label.value; toast("Saved."); renderTab();
+          } catch (e) { fail(e, err); }
+        } })));
+    });
+    const form = el("form", { class: "box" },
+      el("h3", { text: "New tenant" }),
+      el("div", { class: "hint", text: "A tenant is a workspace with its own documents (a folder in data/corpus). Open it to whole roles, to individual users, or both." }),
+      el("div", { class: "form-grid" },
+        el("div", {}, el("label", { for: "nt-name", text: "Name" }), el("input", { id: "nt-name", required: true, maxlength: 40, pattern: "[a-z0-9][a-z0-9_\\-]{0,39}", placeholder: "e.g. legal" }),
+          el("div", { class: "hint", text: "Lowercase letters, digits, - or _." })),
+        el("div", {}, el("label", { for: "nt-label", text: "Label shown in the app" }), el("input", { id: "nt-label", maxlength: 80, placeholder: "e.g. Legal" }))),
+      el("label", { text: "Open to every user with role" }), checks("nt-roles", ROLES),
+      el("label", { text: "Also give these users access" }), checks("nt-users", users.map((u) => u.username)),
+      el("div", { class: "actions" }, el("button", { class: "btn primary", type: "submit", text: "Create tenant" })));
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault(); err.textContent = "";
+      try {
+        const t = await api("/admin/tenants", { method: "POST", body: {
+          name: $("nt-name").value.trim(), label: $("nt-label").value.trim() || null,
+          roles: checked(form, "nt-roles"), users: checked(form, "nt-users") } });
+        TENANT_LABELS[t.name] = t.label;
+        toast(`Created ${t.label}. Upload documents to it from the Documents tab.`);
+        await refreshMe(); renderTab();
+      } catch (e2) { fail(e2, err); }
+    });
+    body.append(
+      el("div", { class: "box grid-box" },
+        el("h3", { text: "Tenants" }),
+        el("div", { class: "hint", text: "Roles ticked here can use the tenant, including users added later. Per-user access is on the Users tab." }),
+        el("table", { class: "grid" },
+          el("thead", {}, el("tr", {}, ["Name", "Label", "Docs", "Open to roles", "Users with access", ""].map((h) => el("th", { text: h })))),
+          el("tbody", {}, rows))),
+      form, err);
+  }
+
+  // ---------- Users (admins) ----------
+  async function renderUsers(body) {
+    const err = el("div", { class: "error", role: "alert" });
+    let users, tenants;
+    try { [users, tenants] = await Promise.all([api("/admin/users"), api("/admin/tenants")]); } catch (e) { body.append(err); return fail(e, err); }
+    const tenantOpts = tenants.map((t) => ({ value: t.name, label: t.label }));
+    const rows = users.map((u) => {
+      const role = select(ROLES, u.role);
+      role.setAttribute("aria-label", "Role");
+      const tset = checks("ut-" + u.username, tenantOpts, u.tenants);
+      const self = u.username === me.username;
+      return el("tr", {},
+        el("td", {}, el("strong", { text: u.username }), self ? el("div", { class: "hint", style: "margin:0", text: "you" }) : null,
+          u.must_change_password ? el("div", {}, el("span", { class: "pill warn", text: "must change password" })) : null),
+        el("td", {}, role),
+        el("td", {}, tset, u.via_role.length ? el("div", { class: "hint", text: "Also by role: " + u.via_role.join(", ") }) : null),
+        el("td", {}, el("div", { class: "actions", style: "margin:0" },
+          el("button", { class: "btn small", type: "button", text: "Save", onclick: async () => {
+            err.textContent = "";
+            try {
+              await api("/admin/users/" + encodeURIComponent(u.username), { method: "PATCH", body: { role: role.value, tenants: checked(tset, "ut-" + u.username) } });
+              toast(role.value !== u.role ? `Saved. ${u.username} must sign in again.` : "Saved.");
+              if (self) await refreshMe();
+              renderTab();
+            } catch (e) { fail(e, err); }
+          } }),
+          el("button", { class: "btn small", type: "button", text: "Reset password", onclick: async () => {
+            const pw = prompt(`Temporary password for ${u.username} (they must change it at next sign-in). At least 10 characters with letters and digits:`);
+            if (!pw) return;
+            try { await api(`/admin/users/${encodeURIComponent(u.username)}/password`, { method: "POST", body: { password: pw } }); toast(`Password reset for ${u.username}.`); renderTab(); } catch (e) { fail(e, err); }
+          } }),
+          self ? null : el("button", { class: "btn small danger", type: "button", text: "Delete", onclick: async () => {
+            if (!confirm(`Delete the account ${u.username}?`)) return;
+            try { await api("/admin/users/" + encodeURIComponent(u.username), { method: "DELETE" }); toast("Deleted."); renderTab(); } catch (e) { fail(e, err); }
+          } }))));
+    });
+    const form = el("form", { class: "box" },
+      el("h3", { text: "New user" }),
+      el("div", { class: "form-grid" },
+        el("div", {}, el("label", { for: "nu-name", text: "Username" }), el("input", { id: "nu-name", required: true, maxlength: 64, autocomplete: "off" })),
+        el("div", {}, el("label", { for: "nu-pass", text: "Temporary password" }), el("input", { id: "nu-pass", type: "password", required: true, autocomplete: "new-password" }),
+          el("div", { class: "hint", text: "At least 10 characters, letters and digits." })),
+        el("div", {}, el("label", { for: "nu-role", text: "Role" }), Object.assign(select(ROLES, "employee"), { id: "nu-role" }))),
+      el("label", { text: "Tenants" }), checks("nu-tenants", tenantOpts, [tenantOpts[0] && tenantOpts[0].value]),
+      el("div", { class: "checks", style: "margin-top:10px" }, el("label", {}, el("input", { type: "checkbox", id: "nu-change", checked: true }), "Must change the password at first sign-in")),
+      el("div", { class: "actions" }, el("button", { class: "btn primary", type: "submit", text: "Create user" })));
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault(); err.textContent = "";
+      try {
+        const u = await api("/admin/users", { method: "POST", body: {
+          username: $("nu-name").value.trim(), password: $("nu-pass").value, role: $("nu-role").value,
+          tenants: checked(form, "nu-tenants"), must_change: $("nu-change").checked } });
+        toast(`Created ${u.username}.`); renderTab();
+      } catch (e2) { fail(e2, err); }
+    });
+    body.append(
+      el("div", { class: "box grid-box" },
+        el("h3", { text: "Users" }),
+        el("div", { class: "hint", text: "Changing a role signs that user out. Tenant changes apply at once." }),
+        el("table", { class: "grid" },
+          el("thead", {}, el("tr", {}, ["User", "Role", "Tenants", ""].map((h) => el("th", { text: h })))),
+          el("tbody", {}, rows))),
+      form, err);
+  }
+
+  // ---------- Evaluation (admins) ----------
+  async function renderEval(body) {
+    const err = el("div", { class: "error", role: "alert" });
+    const size = el("select", { id: "ev-size" },
+      el("option", { value: "10", text: "Quick: 10 questions (a few minutes)" }),
+      el("option", { value: "20", text: "20 questions" }),
+      el("option", { value: "", text: "All questions (15–20 min on a laptop GPU)" }));
+    const form = el("form", { class: "box" },
+      el("h3", { text: "Run the evaluation" }),
+      el("div", { class: "hint", text: "Scores retrieval in every mode and LLM answers in the configured mode, checks for leaks, and updates the offline KPIs. It runs in the background; you can leave this page." }),
+      el("label", { for: "ev-size", text: "Size" }), size,
+      el("div", { class: "checks", style: "margin-top:10px" },
+        el("label", {}, el("input", { type: "checkbox", id: "ev-ret" }), "Retrieval only (no LLM, under a minute)"),
+        el("label", {}, el("input", { type: "checkbox", id: "ev-judge" }), "Also score faithfulness with the LLM (slower)")),
+      el("div", { class: "actions" }, el("button", { class: "btn primary", type: "submit", text: "Start evaluation" })));
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault(); err.textContent = "";
+      try {
+        const job = await api("/jobs/eval", { method: "POST", body: {
+          limit: size.value ? Number(size.value) : null, retrieval_only: $("ev-ret").checked, judge: $("ev-judge").checked } });
+        watched.add(job.id); toast("Evaluation started."); loadJobs();
+      } catch (e2) { fail(e2, err); }
+    });
+    const results = el("div", { class: "box grid-box" }, el("h3", { text: "Latest results" }), el("div", { class: "hint", text: "Loading…" }));
+    body.append(form, results, err);
+    let r;
+    try { r = await api("/admin/eval"); } catch (e) { return fail(e, err); }
+    results.lastChild.remove();
+    if (!r.report) { results.append(el("div", { class: "hint", text: "No evaluation has run yet." })); return; }
+    const rep = r.report;
+    const cols = [["recall@5", "percent"], ["mrr", "num"], ["groundedness", "percent"], ["faithfulness", "num"],
+      ["refusal_accuracy", "percent"], ["keyword_accuracy", "percent"], ["unauthorized_rate", "percent"], ["leaks", "int"], ["p95_ms", "ms"]];
+    const fmtv = (v, u) => v === null || v === undefined ? "–" : u === "percent" ? (v * 100).toFixed(1) + "%" : u === "ms" ? Math.round(v).toLocaleString() + " ms" : u === "int" ? String(v) : Number(v).toFixed(3);
+    results.append(
+      el("div", { class: rep.passed ? "ok-msg" : "notice", style: "margin:0 0 10px",
+        text: (rep.passed ? "No leaks and no unauthorized retrieval. " : "Access-control problems found: see leaks below. ") + `${rep.questions} questions, run ${rep.generated_at}.` }),
+      el("table", { class: "grid" },
+        el("thead", {}, el("tr", {}, el("th", { text: "mode" }), cols.map(([c]) => el("th", { text: c.replace(/_/g, " ") })))),
+        el("tbody", {}, Object.entries(rep.modes).map(([mode, m]) => el("tr", {},
+          el("td", { text: mode + (m.answered ? "" : " (retrieval only)") }),
+          cols.map(([c, u]) => el("td", { class: "num", text: fmtv(m[c], u) })))))),
+      el("div", { class: "hint", text: `Cache-poisoning leaks: ${rep.cache_poisoning_leaks ?? "–"}. The KPI page shows these numbers next to live traffic.` }));
+    if (r.failures.length) {
+      results.append(el("h3", { style: "margin-top:16px", text: `Questions that did not pass (${r.failures.length})` }),
+        el("table", { class: "grid" },
+          el("thead", {}, el("tr", {}, ["id", "role", "question", "answer", "problem"].map((h) => el("th", { text: h })))),
+          el("tbody", {}, r.failures.map((f) => el("tr", {},
+            el("td", { text: f.id }), el("td", { text: f.role }), el("td", { text: f.question }),
+            el("td", { text: f.answer || (f.refused ? "(refused)" : "") }),
+            el("td", { text: f.problem + (f.leaked.length ? ": " + f.leaked.join(", ") : "") }))))));
+    }
+  }
+
+  async function refreshMe() {
+    try { me = await api("/me"); } catch (e) { fail(e); }
+  }
+  // Update the job list when the tab comes back into view.
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && manageOpen()) loadJobs(); });
 
   // Workspaces come from the corpus folders, so a tenant added later shows up without a UI change.
   async function loadTenants() {

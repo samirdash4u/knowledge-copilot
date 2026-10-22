@@ -181,6 +181,25 @@ class UserStore:
                 raise KeyError(username)
         return self.get(username.strip().lower())  # type: ignore[return-value]
 
+    def set_role(self, username: str, role: Role | str) -> User:
+        """Change the user's role. Their current sessions end, since tokens carry the role."""
+        username = username.strip().lower()
+        with self._lock, self._connect() as db:
+            cur = db.execute(
+                "UPDATE users SET role = ?, token_version = token_version + 1, updated_at = ?"
+                " WHERE username = ?",
+                (Role.parse(role).label, time.time(), username),
+            )
+            if cur.rowcount == 0:
+                raise KeyError(username)
+        return self.get(username)  # type: ignore[return-value]
+
+    def delete(self, username: str) -> None:
+        with self._lock, self._connect() as db:
+            cur = db.execute("DELETE FROM users WHERE username = ?", (username.strip().lower(),))
+            if cur.rowcount == 0:
+                raise KeyError(username)
+
     def authenticate(self, username: str, password: str) -> User | None:
         username = username.strip().lower()
         with self._connect() as db:

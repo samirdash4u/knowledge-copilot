@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     login_max_failures: int = 5
     login_lockout_s: int = 300
 
+    # Admin console and document upload in the web UI (see docs/admin-console.md)
+    max_upload_mb: float = 25.0
+    eval_questions: Path = Path("eval/questions.jsonl")
+
     # Chunking
     chunk_size: int = 800  # characters
     chunk_overlap: int = 120
