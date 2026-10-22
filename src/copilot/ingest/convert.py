@@ -1,4 +1,5 @@
-"""Convert a PDF or DOCX into a tagged Markdown file under the corpus directory.
+"""Convert a PDF, DOCX, Markdown or text file into a tagged Markdown file under the corpus
+directory.
 
 Markdown is what the loader handles best: each heading becomes a section that citations can point
 at, and a ``<!-- acl: ... -->`` marker can restrict one section. Converting once, and keeping the
@@ -13,11 +14,12 @@ from pathlib import Path
 
 import yaml
 
-from copilot.ingest.loaders import SUPPORTED, _slug, load_file
+from copilot.ingest.loaders import FRONT_MATTER, SUPPORTED, _slug, load_file
 from copilot.models import Role
 from copilot.tenants import check_name
 
-CONVERTIBLE = {".pdf", ".docx"}
+TEXT_TYPES = {".md", ".markdown", ".txt"}
+CONVERTIBLE = {".pdf", ".docx"} | TEXT_TYPES
 
 
 @dataclass
@@ -179,15 +181,45 @@ def convert_pdf(path: Path) -> Converted:
 # ---------------------------------------------------------------- writing
 
 
+# ---------------------------------------------------------------- Markdown / text
+
+
+def convert_text(path: Path) -> Converted:
+    """Markdown or plain text. Its own front matter is dropped (the import writes new front
+    matter, so a file can't pick its own tenant or role); a leading ``# Title`` becomes the title.
+    """
+    raw = path.read_text(encoding="utf-8-sig", errors="replace").replace("\r\n", "\n")
+    title = None
+    m = FRONT_MATTER.match(raw)
+    if m:
+        try:
+            meta = yaml.safe_load(m.group(1)) or {}
+        except yaml.YAMLError:
+            meta = {}
+        if isinstance(meta, dict) and meta.get("title"):
+            title = str(meta["title"]).strip()
+        raw = raw[m.end() :]
+    lines = raw.strip().splitlines()
+    if lines and lines[0].startswith("# "):
+        title = title or lines[0][2:].strip()
+        lines = lines[1:]
+    body = "\n".join(lines).strip()
+    if not body:
+        raise ValueError(f"{path.name} is empty")
+    return Converted(title=title, body=body)
+
+
 def convert(path: Path) -> Converted:
     suffix = path.suffix.lower()
+    if suffix in TEXT_TYPES:
+        return convert_text(path)
     if suffix == ".docx":
         return convert_docx(path)
     if suffix == ".pdf":
         return convert_pdf(path)
     if suffix == ".doc":
         raise ValueError("old .doc files aren't supported; save it as .docx first")
-    raise ValueError(f"can't convert {path.name}; expected a .pdf or .docx file")
+    raise ValueError(f"can't convert {path.name}; expected a .pdf, .docx, .md or .txt file")
 
 
 def existing_doc_ids(tenant_dir: Path) -> dict[str, Path]:

@@ -22,8 +22,10 @@ services:
       COPILOT_METRICS_DB: /index/metrics.db
       COPILOT_EVAL_REPORT: /reports/eval.json
     volumes:
-      - ./data/corpus:/app/data/corpus:ro
-      - ./reports:/reports:ro  # the latest eval report, for the offline KPIs
+      # Writable, so documents uploaded and tenants created in the web UI land in data/corpus on
+      # this machine, and eval runs started there write reports/eval.json.
+      - ./data/corpus:/app/data/corpus
+      - ./reports:/reports
       - index:/index
       - hf-models:/models/hf
     depends_on: [qdrant, redis, ollama]

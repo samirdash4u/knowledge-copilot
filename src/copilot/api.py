@@ -9,11 +9,12 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
+from copilot import admin
 from copilot import suggestions as suggest
 from copilot.acl import AccessViolation
 from copilot.auth import AuthError, decode_token, issue_token
@@ -21,7 +22,7 @@ from copilot.config import Settings, get_settings
 from copilot.generation.llm import LLMUnavailable
 from copilot.metrics import Monitor, audit, record_answer, record_failure
 from copilot.models import Principal, Role
-from copilot.service import CopilotService
+from copilot.service import CopilotService, IndexMissing
 from copilot.tenants import list_tenants, read_meta, tenants_for
 from copilot.users import LoginThrottle, PasswordPolicyError, User, UserStore
 
@@ -96,7 +97,7 @@ def create_app(
     monitor: Monitor | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
-    app = FastAPI(title="Knowledge Copilot", version="0.2.0")
+    app = FastAPI(title="Knowledge Copilot", version="0.3.0")
     app.state.settings = settings
     app.state.service = service
     if monitor is None and settings.metrics_enabled:
@@ -123,10 +124,17 @@ def create_app(
     app.state.users = users
     throttle = LoginThrottle(settings.login_max_failures, settings.login_lockout_s)
 
-    def get_service(request: Request) -> CopilotService:
-        if request.app.state.service is None:
-            request.app.state.service = CopilotService.from_settings(settings)
-        return request.app.state.service
+    def load_service() -> CopilotService:
+        """The loaded index; raises IndexMissing before the first ingest."""
+        if app.state.service is None:
+            app.state.service = CopilotService.from_settings(settings)
+        return app.state.service
+
+    def get_service() -> CopilotService:
+        try:
+            return load_service()
+        except IndexMissing as exc:
+            raise HTTPException(503, str(exc)) from exc
 
     def with_role_tenants(user: User | None) -> User | None:
         """Add the tenants opened to the user's role (tenant.yaml ``roles``) to their own."""
@@ -281,16 +289,20 @@ def create_app(
         return asdict(ans)
 
     @app.get("/suggestions")
-    def suggestions(
-        principal: Annotated[Principal, Depends(get_principal)],
-        service: Annotated[CopilotService, Depends(get_service)],
-    ) -> list[str]:
+    def suggestions(principal: Annotated[Principal, Depends(get_principal)]) -> list[str]:
         """Questions to offer under the chat box for the caller's tenant and role."""
         meta = read_meta(settings.corpus_dir / principal.tenant)
         configured = suggest.configured(meta.get("suggestions"), principal.role.label)
         if configured is not None:
             return configured
-        return suggest.generated(principal, service.chunks)
+        try:
+            return suggest.generated(principal, load_service().chunks)
+        except IndexMissing:
+            return []
+
+    # ---------- admin console, document upload, background jobs ----------
+
+    admin.install(app, settings, users, get_caller, load_service)
 
     # ---------- KPI monitoring ----------
 

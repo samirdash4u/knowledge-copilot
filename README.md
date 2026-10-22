@@ -71,15 +71,27 @@ The short version, the same on both (use `python3` on Linux):
 
 ```bash
 python scripts/manage.py setup        # creates .env; set COPILOT_HOST / COPILOT_PORT there
-python scripts/manage.py up           # add --gpu for an NVIDIA GPU
+python scripts/manage.py up           # add --gpu for an NVIDIA GPU; prints the URLs to open
+```
+
+Then do the rest in the browser: sign in as `carol` (admin), open **Admin > Status**, click
+**Download model** (the LLM, ~4.7 GB, once) and **Run ingest**. Uploading documents, creating
+tenants, managing users and access, and running the evaluation are all on the **Admin** page; see
+[Running everything from the browser](docs/admin-console.md). Employees and managers get a
+**Documents** page where they can upload documents (visible to their own role or lower) and run
+ingest.
+
+The same steps on the command line:
+
+```bash
 python scripts/manage.py pull-model   # downloads the LLM (~4.7 GB)
 python scripts/manage.py ingest       # chunks, embeds and indexes data/corpus
 python scripts/manage.py status       # prints the URLs to open
 ```
 
-To add your own documents, drop them in `data/corpus/<tenant>/` and run `ingest` again, or
-convert a PDF or Word file with `python scripts/manage.py add-doc <file>`. New tenants are added
-with `python scripts/manage.py add-tenant <name>`; see
+To add your own documents from the command line, drop them in `data/corpus/<tenant>/` and run
+`ingest` again, or convert a PDF or Word file with `python scripts/manage.py add-doc <file>`. New
+tenants are added with `python scripts/manage.py add-tenant <name>`; see
 [Adding documents](docs/adding-documents.md).
 
 `COPILOT_HOST` decides where the web UI is reachable: `0.0.0.0` means every network interface,
@@ -119,8 +131,8 @@ updates the demo accounts that haven't signed in yet:
 | `carol` | admin |
 
 Passwords are hashed with PBKDF2-SHA256. Changing a password signs out every other session for that
-account, and five failed logins lock the account for five minutes. Manage accounts from the command
-line:
+account, and five failed logins lock the account for five minutes. Admins manage accounts under
+**Admin > Users** in the web UI, or from the command line:
 
 ```bash
 copilot users list
@@ -288,6 +300,8 @@ src/copilot/
   service.py           the question-answering pipeline
   metrics.py           KPI records (SQLite), Prometheus metrics, KPI summary
   users.py             SQLite user accounts, password hashing, login throttling
+  admin.py             admin console and document upload API, with the role checks
+  jobs.py              background jobs (ingest, eval, model download) with progress
   web/index.html       the web UI (no build step)
   api.py, cli.py       HTTP API and command line
   eval/runner.py       metrics, canary leak detection, cache-poisoning test

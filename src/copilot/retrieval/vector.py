@@ -88,6 +88,12 @@ class QdrantVectorStore:
         for i in range(0, len(points), 256):
             self.client.upsert(self.collection, points=points[i : i + 256])
 
+    def drop_collections_except(self, keep: set[str]) -> None:
+        """Delete older index collections (named ``chunks*``) that are not in ``keep``."""
+        for c in self.client.get_collections().collections:
+            if c.name.startswith("chunks") and c.name not in keep:
+                self.client.delete_collection(c.name)
+
     def search(self, principal: Principal, query_vec: np.ndarray, k: int) -> list[ScoredChunk]:
         from qdrant_client import models as qm
 

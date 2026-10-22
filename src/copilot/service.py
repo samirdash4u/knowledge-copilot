@@ -11,7 +11,7 @@ from copilot.config import Settings
 from copilot.generation.citations import check_citations, faithfulness
 from copilot.generation.llm import LLM, EchoLLM, OllamaLLM, chat_with_usage
 from copilot.generation.prompt import REFUSAL, build_messages, fit_context
-from copilot.ingest.pipeline import run_ingest
+from copilot.ingest.pipeline import Progress, run_ingest
 from copilot.models import Answer, Chunk, Principal
 from copilot.retrieval.bm25 import BM25Index
 from copilot.retrieval.embeddings import Embedder, HashEmbedder, SentenceTransformerEmbedder
@@ -37,10 +37,10 @@ def make_reranker(s: Settings) -> Reranker:
     return CrossEncoderReranker(s.reranker_model)
 
 
-def make_store(s: Settings) -> VectorStore:
+def make_store(s: Settings, collection: str = "chunks") -> VectorStore:
     if s.vector_store == "memory":
         return InMemoryVectorStore()
-    return QdrantVectorStore(s.qdrant_url)
+    return QdrantVectorStore(s.qdrant_url, collection)
 
 
 def make_llm(s: Settings) -> LLM:
@@ -67,8 +67,19 @@ def make_cache(s: Settings, corpus_version: str) -> AnswerCache:
     )
 
 
-def ingest(settings: Settings) -> dict:
-    return run_ingest(settings, make_embedder(settings), make_store(settings))
+def ingest(
+    settings: Settings, embedder: Embedder | None = None, progress: Progress | None = None
+) -> dict:
+    embedder = embedder or make_embedder(settings)
+    return run_ingest(settings, embedder, make_store(settings), progress=progress)
+
+
+class IndexMissing(RuntimeError):
+    def __init__(self) -> None:
+        super().__init__(
+            "The documents have not been indexed yet. Run ingest (Admin or Documents page in the"
+            " web UI, or 'copilot ingest')."
+        )
 
 
 class CopilotService:
@@ -98,24 +109,40 @@ class CopilotService:
         return self._forbidden[scope]
 
     @classmethod
-    def from_settings(cls, s: Settings) -> CopilotService:
+    def from_settings(
+        cls,
+        s: Settings,
+        previous: CopilotService | None = None,
+        embedder: Embedder | None = None,
+    ) -> CopilotService:
+        """Load the index. ``previous`` (or ``embedder``) lends already-loaded models, so
+        reloading after an ingest doesn't load the embedding model and reranker a second time."""
+        if not (s.index_dir / "manifest.json").is_file():
+            raise IndexMissing()
         manifest = json.loads((s.index_dir / "manifest.json").read_text())
         chunks = load_chunks(s.index_dir / "chunks.jsonl")
-        embedder = make_embedder(s)
+        if previous is not None:
+            embedder, reranker, llm = (
+                previous.retriever.embedder,
+                previous.retriever.reranker,
+                previous.llm,
+            )
+        else:
+            embedder, reranker, llm = embedder or make_embedder(s), make_reranker(s), make_llm(s)
         if s.vector_store == "memory":
             store: VectorStore = InMemoryVectorStore.load(s.index_dir, chunks)
         else:
-            store = make_store(s)
+            store = make_store(s, manifest.get("collection", "chunks"))
         retriever = HybridRetriever(
             BM25Index(chunks),
             store,
             embedder,
-            make_reranker(s),
+            reranker,
             candidates=s.candidates_per_retriever,
             rrf_k=s.rrf_k,
         )
         version = manifest["corpus_version"]
-        return cls(s, retriever, make_llm(s), make_cache(s, version), version, chunks)
+        return cls(s, retriever, llm, make_cache(s, version), version, chunks)
 
     def answer(
         self, principal: Principal, question: str, mode: str | None = None, use_cache: bool = True

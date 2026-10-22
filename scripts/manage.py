@@ -158,7 +158,10 @@ def up(args: argparse.Namespace) -> None:
     if wait_healthy():
         status(args)
         print(
-            "\nNext: 'python scripts/manage.py pull-model' then 'python scripts/manage.py ingest'"
+            "\nNext: open the web UI, sign in as an admin (carol on a fresh install) and use"
+            " Admin > Status: 'Download model', then 'Run ingest'. Everything else (documents,"
+            " tenants, users, eval) is in the browser too. The commands still work:"
+            " 'python scripts/manage.py pull-model' then 'python scripts/manage.py ingest'."
         )
     else:
         print("the API did not answer yet; check 'python scripts/manage.py logs'")
@@ -198,8 +201,8 @@ def add_doc(args: argparse.Namespace) -> None:
     source = Path(args.file).expanduser().resolve()
     if not source.is_file():
         fail(f"no such file: {args.file}")
-    if source.suffix.lower() not in {".pdf", ".docx"}:
-        fail(f"{source.name} is not a .pdf or .docx file")
+    if source.suffix.lower() not in {".pdf", ".docx", ".md", ".markdown", ".txt"}:
+        fail(f"{source.name} is not a .pdf, .docx, .md or .txt file")
     corpus = ROOT / "data" / "corpus"
     tenants = sorted(p.name for p in corpus.iterdir() if p.is_dir())
     tenant = args.tenant or choose("Tenant", tenants)

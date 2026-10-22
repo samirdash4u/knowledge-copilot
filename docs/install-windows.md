@@ -203,6 +203,9 @@ python scripts\manage.py ingest        # downloads embedding models on first run
 python scripts\manage.py status        # prints the URLs to open
 ```
 
+Only `up` is required: the model download and ingest are also buttons under **Admin > Status** in
+the web UI ([admin-console.md](admin-console.md)).
+
 The first `up` builds the image, which takes several minutes. Later starts take seconds, and the
 containers restart automatically with Docker Desktop. Other commands:
 
@@ -245,7 +248,10 @@ python scripts\manage.py eval     # run the evaluation set, report in reports\
    copilot serve --host 0.0.0.0 --port 8080       # or override on the command line
    ```
 
-   The server prints the URLs it can be reached on. Press Ctrl+C to stop it.
+   The server prints the URLs it can be reached on. Press Ctrl+C to stop it. You can also skip
+   `copilot ingest` (and `ollama pull`) and use **Download model** and **Run ingest** under
+   **Admin > Status** in the web UI instead; ingest from the browser reloads the running server,
+   so no restart is needed.
 
 ## 6. Open the port in Windows Firewall
 
@@ -293,6 +299,10 @@ docker compose exec api copilot users add dave --role manager
 # path B (with .venv activated)
 copilot users add dave --role manager
 ```
+
+Everything after starting the server can be done in the browser: as an admin, open **Admin >
+Status** to download the model and run ingest, and use the other tabs for documents, tenants,
+users and the evaluation. See [admin-console.md](admin-console.md).
 
 To watch quality, safety, speed and cost (Recall@5, MRR, groundedness, faithfulness,
 unauthorized retrieval rate, p95 latency, cost per answer), sign in as an admin such as `carol` and
