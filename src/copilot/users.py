@@ -258,6 +258,28 @@ class UserStore:
                 updated.append(row["username"])
         return updated
 
+    def prepare_public_demo(self, password: str) -> list[str]:
+        """Make the demo accounts usable by anyone with ``password``, without a forced change.
+
+        Missing demo accounts are created, and changed ones get their role and password back,
+        so one visitor can't lock the others out. Returns the usernames created or reset.
+        """
+        changed = []
+        for name, role in DEMO_USERS:
+            user = self.get(name)
+            if user is None:
+                self.create(
+                    name, password, role, DEMO_TENANTS, must_change=False, enforce_policy=False
+                )
+                changed.append(name)
+                continue
+            if user.role != role:
+                self.set_role(name, role)
+            if user.must_change or user.role != role or self.authenticate(name, password) is None:
+                self.set_password(name, password, must_change=False)
+                changed.append(name)
+        return changed
+
 
 class LoginThrottle:
     """Lock a username out for a while after repeated failed logins."""

@@ -39,6 +39,19 @@ class Settings(BaseSettings):
     login_max_failures: int = 5
     login_lockout_s: int = 300
 
+    # Public demo (see docs/public-demo.md): visitors sign in as the demo accounts, whose logins
+    # are shown on the sign-in page. Only signing in, switching workspace and asking work;
+    # uploads, ingest, jobs, password changes and every admin change are refused.
+    public_demo: bool = False
+    demo_asks_per_minute: int = 4  # per visitor (client IP)
+    demo_asks_per_day: int = 40  # per visitor (client IP)
+    demo_max_concurrent: int = 1  # questions answered at once; others wait in line
+    demo_queue_wait_s: float = 30.0  # how long a question waits for a free slot before a 429
+    # Header that carries the visitor's IP when a proxy or tunnel sits in front, e.g.
+    # CF-Connecting-IP for Cloudflare Tunnel. Empty = the TCP peer address. Only set it when the
+    # server is reachable through that proxy alone (COPILOT_HOST=127.0.0.1), or it can be faked.
+    client_ip_header: str = ""
+
     # Admin console and document upload in the web UI (see docs/admin-console.md)
     max_upload_mb: float = 25.0
     eval_questions: Path = Path("eval/questions.jsonl")

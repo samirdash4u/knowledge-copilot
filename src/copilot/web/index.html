@@ -150,6 +150,7 @@
   .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
   .btn.small { padding: 4px 10px; font-size: 13px; }
   .btn.danger { color: var(--danger); }
+  .demo-logins { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
   .pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
   .pill.ok { background: var(--ok-bg); color: var(--ok-text); }
   .pill.warn { background: var(--warn-bg); color: var(--warn-text); }
@@ -185,6 +186,11 @@
   <form class="card" id="login-form" autocomplete="on">
     <h1>Knowledge Copilot</h1>
     <p class="sub">Sign in to ask questions about company policy and engineering docs.</p>
+    <div class="notice hidden" id="demo-box">
+      <strong>Public demo.</strong> Pick an account to see how answers change with the role.
+      The demo is read-only, and answers can take up to a minute.
+      <div class="demo-logins" id="demo-logins"></div>
+    </div>
     <label for="login-username">Username</label>
     <input id="login-username" name="username" autocomplete="username" required>
     <label for="login-password">Password</label>
@@ -226,6 +232,7 @@
     <span class="brand">Knowledge Copilot</span>
     <span class="who" id="who"></span>
     <span class="badge" id="role-badge"></span>
+    <span class="pill info hidden" id="demo-pill" title="Uploads, ingest and admin changes are turned off">Public demo · read-only</span>
     <select id="tenant-select" aria-label="Workspace"></select>
     <button class="btn" id="open-docs">Documents</button>
     <button class="btn hidden" id="open-admin">Admin</button>
@@ -416,6 +423,8 @@
     $("role-badge").textContent = me.role;
     $("open-kpis").classList.toggle("hidden", me.role !== "admin");
     $("open-admin").classList.toggle("hidden", me.role !== "admin");
+    $("open-password").classList.toggle("hidden", publicDemo);
+    $("demo-pill").classList.toggle("hidden", !publicDemo);
     const sel = $("tenant-select");
     sel.innerHTML = "";
     for (const t of me.tenants) {
@@ -1154,9 +1163,30 @@
     }
   }
 
+  // Public demo: show the shared logins as one-click buttons (the server refuses all changes).
+  let publicDemo = false;
+  async function loadDemo() {
+    let info;
+    try { info = await api("/demo", { auth: false }); } catch { return; }
+    if (!info || !info.enabled) return;
+    publicDemo = true;
+    const box = $("demo-logins");
+    box.innerHTML = "";
+    for (const a of info.accounts) {
+      const b = el("button", { type: "button", class: "btn", text: `${a.username} (${a.role})` });
+      b.addEventListener("click", () => {
+        $("login-username").value = a.username;
+        $("login-password").value = a.password;
+        $("login-form").requestSubmit($("login-form").querySelector("button[type=submit]"));
+      });
+      box.append(b);
+    }
+    $("demo-box").classList.remove("hidden");
+  }
+
   // ---------- boot ----------
   (async () => {
-    await loadTenants();
+    await Promise.all([loadTenants(), loadDemo()]);
     if (!store.get()) return show("login-view");
     try { me = await api("/me"); } catch { store.clear(); me = null; }
     route();
