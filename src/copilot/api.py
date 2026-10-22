@@ -9,12 +9,12 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-from copilot import admin
+from copilot import admin, demo
 from copilot import suggestions as suggest
 from copilot.acl import AccessViolation
 from copilot.auth import AuthError, decode_token, issue_token
@@ -106,7 +106,7 @@ def create_app(
 
     if users is None:
         users = UserStore(settings.users_db, settings.password_hash_iterations)
-    if settings.seed_demo_users:
+    if settings.seed_demo_users and not settings.public_demo:  # the demo makes its own below
         created = users.seed_demo_users(settings.demo_password)
         if created:
             log.warning(
@@ -121,6 +121,12 @@ def create_app(
                 " signed in yet)",
                 ", ".join(synced),
             )
+    if settings.public_demo:
+        demo.check_settings(settings)
+        reset = users.prepare_public_demo(settings.demo_password)
+        if reset:
+            log.warning("public demo: demo accounts %s use COPILOT_DEMO_PASSWORD", ", ".join(reset))
+        demo.install(app, settings)
     app.state.users = users
     throttle = LoginThrottle(settings.login_max_failures, settings.login_lockout_s)
 
@@ -189,18 +195,35 @@ def create_app(
         found = list_tenants(settings.corpus_dir, count_documents=False)
         return [{"name": t.name, "label": t.label} for t in found]
 
+    @app.get("/demo")
+    def demo_info() -> dict:
+        """Whether this is a public demo, and if so the shared logins shown on the sign-in page."""
+        if not settings.public_demo:
+            return {"enabled": False}
+        return {
+            "enabled": True,
+            "accounts": demo.accounts(settings),
+            "asks_per_minute": settings.demo_asks_per_minute,
+            "asks_per_day": settings.demo_asks_per_day,
+        }
+
     # ---------- auth ----------
 
     @app.post("/auth/login")
-    def login(body: LoginRequest) -> dict:
+    def login(body: LoginRequest, request: Request) -> dict:
         username = body.username.strip().lower()
-        if throttle.locked(username):
+        # In a public demo everyone shares the demo accounts, so lock out the visitor, not the
+        # account: otherwise anyone could lock alice out for everybody with five bad guesses.
+        key = username
+        if settings.public_demo:
+            key = f"{username}@{demo.client_ip(settings, request)}"
+        if throttle.locked(key):
             raise HTTPException(429, "too many failed attempts, try again later")
         user = with_role_tenants(users.authenticate(username, body.password))
         if user is None:
-            throttle.fail(username)
+            throttle.fail(key)
             raise HTTPException(401, "invalid username or password")
-        throttle.reset(username)
+        throttle.reset(key)
         tenant = body.tenant or user.tenants[0]
         if tenant not in user.tenants:
             raise HTTPException(403, f"no access to tenant {tenant!r}")

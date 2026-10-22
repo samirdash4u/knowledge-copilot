@@ -287,6 +287,22 @@ A few things to know:
 
 All the definitions and settings are in [docs/monitoring.md](docs/monitoring.md).
 
+## Sharing a public demo
+
+To let others try the copilot from their browser, turn on the read-only public demo mode and open
+a free Cloudflare Tunnel from your machine:
+
+```bash
+# in .env: COPILOT_PUBLIC_DEMO=true, COPILOT_HOST=127.0.0.1, COPILOT_CLIENT_IP_HEADER=CF-Connecting-IP
+python scripts/manage.py up
+cloudflared tunnel --url http://127.0.0.1:8000    # prints a https://….trycloudflare.com link
+```
+
+The sign-in page then shows one-click logins for alice, bob and carol, every change (uploads,
+ingest, password changes, admin edits) is refused by the server, and questions are rate-limited
+per visitor. See [Sharing a public demo](docs/public-demo.md) for the settings, a link that stays
+the same, and a checklist before you share it.
+
 ## Project layout
 
 ```
@@ -300,6 +316,7 @@ src/copilot/
   service.py           the question-answering pipeline
   metrics.py           KPI records (SQLite), Prometheus metrics, KPI summary
   users.py             SQLite user accounts, password hashing, login throttling
+  demo.py              public demo mode: read-only guard and rate limits
   admin.py             admin console and document upload API, with the role checks
   jobs.py              background jobs (ingest, eval, model download) with progress
   web/index.html       the web UI (no build step)
